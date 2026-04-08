@@ -4,6 +4,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\DeliveryController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -33,6 +34,10 @@ Route::post('/attendance/store', [AttendanceController::class, 'store'])->name('
 Route::post('/attendance/toggle', [AttendanceController::class, 'toggleStatus'])->name('attendance.toggle');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/deliveries', [DeliveryController::class, 'index'])->name('deliveries.index');
+    Route::post('/deliveries', [DeliveryController::class, 'store'])->name('deliveries.store');
+    Route::patch('/deliveries/{delivery}/status', [DeliveryController::class, 'updateStatus'])->name('deliveries.updateStatus');
+
     Route::get('/profile', [ProfileController::class, 'Index'])->name('profile.Index');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');

@@ -3,12 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\TrackingLog;
 use App\Models\User;
+use App\Services\FaceRecognizeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class AttendanceController extends Controller
 {
@@ -32,22 +35,85 @@ class AttendanceController extends Controller
 
     /**
      * Store a new attendance record (face verification + GPS).
-     * TO BE IMPLEMENTED in Phase 3.
      */
-    public function store(Request $request)
+    public function store(Request $request, FaceRecognizeService $faceService)
     {
         $request->validate([
-            'image'     => 'required|string',
-            'type'      => 'required|in:check_in,check_out,proof_of_delivery',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
+            'image'       => 'required|string',
+            'type'        => 'required|in:check_in,check_out,proof_of_delivery',
+            'latitude'    => 'required|numeric',
+            'longitude'   => 'required|numeric',
+            'delivery_id' => 'nullable|exists:deliveries,id',
         ]);
 
-        // Phase 3 will wire the Python face verification service here.
+        $user = auth()->user();
+
+        try {
+            $verificationResult = $faceService->verifyFace($user, $request->image);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => $e->getMessage()
+            ], 400);
+        }
+        
+        if (!$verificationResult['success']) {
+             return response()->json([
+                 'status'  => 'error',
+                 'message' => $verificationResult['message'] ?? 'Face verification failed'
+             ], 400);
+        }
+
+        $isMatch = $verificationResult['is_match'];
+        $similarityScore = $verificationResult['similarity_score'];
+
+        // FILE HANDLING: Strip out data URI and save file globally
+        $imageBase64 = $request->image;
+        if (strpos($imageBase64, ',') !== false) {
+            @list(, $imageBase64) = explode(',', $imageBase64);
+        }
+        $imageBytes = base64_decode($imageBase64);
+        
+        if (!$imageBytes) {
+             return response()->json([
+                 'status'  => 'error',
+                 'message' => 'Invalid image encoding.'
+             ], 400);
+        }
+
+        $fileName = 'attendances/' . $user->id . '_' . time() . '_' . Str::random(10) . '.jpg';
+        Storage::disk('public')->put($fileName, $imageBytes);
+
+        $address = $this->getAddress($request->latitude, $request->longitude);
+
+        // Create record in attendances
+        $attendance = Attendance::create([
+            'user_id'               => $user->id,
+            'delivery_id'           => $request->delivery_id,
+            'type'                  => $request->type,
+            'photo_path'            => $fileName,
+            'face_similarity_score' => $similarityScore,
+            'validation_status'     => $isMatch ? 'valid' : 'invalid',
+            'latitude'              => $request->latitude,
+            'longitude'             => $request->longitude,
+            'address'               => $address,
+        ]);
+
+        // Create record in tracking_logs
+        TrackingLog::create([
+            'driver_id'   => $user->id,
+            'delivery_id' => $request->delivery_id,
+            'latitude'    => $request->latitude,
+            'longitude'   => $request->longitude,
+        ]);
+
         return response()->json([
-            'status'  => 'error',
-            'message' => 'Attendance store not yet implemented. Coming in Phase 3.',
-        ], 501);
+            'status'            => 'success',
+            'message'           => 'Attendance recorded successfully.',
+            'is_match'          => $isMatch,
+            'similarity_score'  => $similarityScore,
+            'validation_status' => $attendance->validation_status
+        ], 200);
     }
 
     /**
@@ -105,51 +171,5 @@ class AttendanceController extends Controller
         }
 
         return null;
-    }
-
-    /**
-     * Verify a face image against stored embeddings via Python service.
-     */
-    private function verifyFace(string $imageBase64): array
-    {
-        $host = env('PYTHON_SERVICE');
-        $port = env('PYTHON_SERVICE_PORT');
-
-        $users = User::whereNotNull('face_embedding')->get(['id', 'name', 'face_embedding']);
-
-        $userData = $users->map(fn($u) => [
-            'id'        => $u->id,
-            'name'      => $u->name,
-            'embedding' => $u->face_embedding,
-        ]);
-
-        try {
-            $response = Http::post("http://{$host}:{$port}/attendance", [
-                'image' => $imageBase64,
-                'users' => $userData,
-            ]);
-
-            $result = $response->json();
-
-            if ($response->successful() && isset($result['match'])) {
-                return [
-                    'success'    => $result['match'],
-                    'user_id'    => $result['message'] ?? null,
-                    'confidence' => $result['confidence'] ?? 0,
-                ];
-            }
-
-            return [
-                'success'    => false,
-                'message'    => $result['message'] ?? 'Wajah tidak dikenali',
-                'confidence' => 0,
-            ];
-        } catch (\Exception $e) {
-            return [
-                'success'    => false,
-                'message'    => 'Gagal koneksi ke server: ' . $e->getMessage(),
-                'confidence' => 0,
-            ];
-        }
     }
 }
