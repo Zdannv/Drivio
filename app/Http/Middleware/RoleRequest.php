@@ -21,13 +21,9 @@ class RoleRequest
         foreach ($roles as $role) {
             if ($user->hasRole($role)) {
                 return $next($request);
-            };
-        };
+            }
+        }
 
-        if (in_array($user->role, ['pg', 'co', 'ds'])) {
-            return to_route('task.list');
-        } elseif (in_array($user->role, ['other', 'pm'])) {
-            return to_route('dashboard');
-        };
+        return redirect()->route('dashboard');
     }
 }

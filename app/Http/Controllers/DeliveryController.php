@@ -8,6 +8,21 @@ use Illuminate\Http\Request;
 class DeliveryController extends Controller
 {
     /**
+     * Admin view for delivering inertia frontend.
+     */
+    public function adminIndex(Request $request)
+    {
+        if ($request->user()->role !== 'admin') {
+            abort(403, 'Unauthorized action.');
+        }
+
+        return inertia('Delivery/Index', [
+            'deliveries' => Delivery::with('driver')->latest()->get(),
+            'drivers'    => \App\Models\User::where('role', 'driver')->latest()->get()
+        ]);
+    }
+
+    /**
      * Fetch all deliveries for admin, or just the assigned user's for driver.
      */
     public function index(Request $request)
@@ -43,7 +58,8 @@ class DeliveryController extends Controller
 
         $delivery = Delivery::create($validated);
 
-        return response()->json($delivery, 201);
+        // Convert the API response back to an Inertia-compatible redirect
+        return redirect()->back()->with('success', 'Delivery dispatched successfully.');
     }
 
     /**

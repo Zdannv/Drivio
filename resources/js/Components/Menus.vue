@@ -20,18 +20,10 @@ const props = defineProps({
 const page = usePage();
 const userRole = computed(() => page.props.auth.user.role);
 
-// 1. Definisi Menu
 const rawMenuItems = computed(() => [
-    { label: "Dashboard", route: "dashboard", icon: News, show: ["other", "pm"].includes(userRole.value), pattern: "dashboard" },
-    { label: "Users", route: "user.list", icon: User, show: ["other", "pm"].includes(userRole.value), pattern: "user.list" },
-    { label: "Project Owner", route: "projectOwner.list", icon: Build, show: ["other", "pm", "co"].includes(userRole.value), pattern: "projectOwner.list" },
-    { label: "Projects", route: "project.list", icon: Folder, show: true, pattern: "project.list" },
-    { label: "Tasks", route: "task.list", icon: Document, show: true, pattern: ["task.list", "task.show"] },
-    { label: "Logtime", route: "logtime.list", icon: Clock, show: true, pattern: "logtime.list" },
-    { label: "Program Log", route: "log.list", icon: Warning, show: userRole.value === "pm", pattern: "log.list" },
-    { label: "Skill", route: "skill.list", icon: Book, show: true, pattern: "skill.list" },
-    { label: "Attendance", route: "attendance", icon: UserPlus, show: userRole.value === "other", pattern: "attendance" },
-    { label: "Import", route: "import.index", icon: Cloud, show: ["other", "co"].includes(userRole.value), pattern: "import.index" },
+    { label: "Live Map Dashboard", route: "dashboard", icon: News, show: true, pattern: "dashboard" },
+    { label: "Manage Drivers", route: "user.list", icon: User, show: userRole.value === 'admin', pattern: "user.list" },
+    { label: "Manage Deliveries", route: "admin.deliveries.index", icon: Folder, show: userRole.value === 'admin', pattern: "admin.deliveries.index" },
 ]);
 
 const visibleMenuItems = computed(() => rawMenuItems.value.filter(item => item.show));
