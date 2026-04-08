@@ -1,7 +1,9 @@
 <script setup>
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
+defineOptions({ layout: AuthenticatedLayout });
 const props = defineProps({
     deliveries: Array,
     drivers: Array,
@@ -140,11 +142,6 @@ const submit = () => {
     </div>
   </div>
 </template>
-
-<script>
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-export default { layout: AuthenticatedLayout };
-</script>
 
 <style scoped>
 @keyframes fadeInUp {
