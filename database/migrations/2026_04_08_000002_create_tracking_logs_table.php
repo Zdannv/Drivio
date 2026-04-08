@@ -11,13 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('logtimes', function (Blueprint $table) {
+        Schema::create('tracking_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->foreignId('task_id')->constrained()->onDelete('cascade');
-            $table->dateTime('date');
-            $table->text('description')->nullable();
-            $table->decimal('time_used');
+            $table->foreignId('driver_id')->constrained('users')->onDelete('cascade');
+            $table->foreignId('delivery_id')->nullable()->constrained('deliveries')->onDelete('set null');
+            $table->decimal('latitude', 10, 8);
+            $table->decimal('longitude', 11, 8);
             $table->timestamps();
         });
     }
@@ -27,6 +26,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('logtimes');
+        Schema::dropIfExists('tracking_logs');
     }
 };

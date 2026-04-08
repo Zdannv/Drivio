@@ -14,17 +14,14 @@ return new class extends Migration
         Schema::create('attendances', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->timestamp('check_in_time')->nullable();
-            $table->timestamp('check_out_time')->nullable();
-            $table->double('check_in_confidence')->nullable();
-            $table->double('check_out_confidence')->nullable();
+            $table->foreignId('delivery_id')->nullable()->constrained()->onDelete('set null');
+            $table->enum('type', ['check_in', 'check_out', 'proof_of_delivery'])->default('check_in');
+            $table->string('photo_path')->nullable()->comment('Live selfie taken in the field');
+            $table->double('face_similarity_score')->nullable()->comment('AI face match score 0.0-1.0');
+            $table->enum('validation_status', ['valid', 'invalid'])->nullable();
+            $table->decimal('latitude', 10, 8)->nullable();
+            $table->decimal('longitude', 11, 8)->nullable();
             $table->text('address')->nullable();
-            $table->string('latitude')->nullable();
-            $table->string('longitude')->nullable();
-            
-            // Tambahan kolom work_type dengan nilai default 'wfo'
-            $table->enum('work_type', ['wfo', 'wfa'])->default('wfo'); 
-            
             $table->timestamps();
         });
     }

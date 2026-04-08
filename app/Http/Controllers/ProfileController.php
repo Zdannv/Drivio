@@ -44,29 +44,6 @@ class ProfileController extends Controller
     }
 
     /**
-     * Update the user's displayed skills.
-     */
-    public function updateSkills(Request $request): RedirectResponse
-    {
-        $request->validate([
-            'displayed_skills' => ['array', 'max:5'],
-            'displayed_skills.*' => ['exists:skills,id']
-        ]);
-
-        $user = $request->user();
-
-        // Reset semua skill milik user menjadi tidak ditampilkan (false)
-        $user->skills()->update(['is_displayed' => false]);
-
-        // Set skill yang dipilih dari modal menjadi ditampilkan (true)
-        if (!empty($request->displayed_skills)) {
-            $user->skills()->whereIn('id', $request->displayed_skills)->update(['is_displayed' => true]);
-        }
-
-        return Redirect::back();
-    }
-
-    /**
      * Delete the user's account.
      */
     public function destroy(Request $request): RedirectResponse

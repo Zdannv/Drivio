@@ -15,9 +15,11 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('email')->unique();
-            $table->enum('role', ['other', 'pm', 'pg', 'co', 'ds'])->default('pg');
+            $table->string('avatar')->nullable()->default('/avatars/avatar-1.png');
+            $table->enum('role', ['admin', 'driver'])->default('driver');
             $table->timestamp('email_verified_at')->nullable();
-            $table->json('face_embedding')->nullable();
+            $table->string('face_image_path')->nullable()->comment('Real face photo for AI reference matching');
+            $table->json('face_embedding')->nullable()->comment('Computed face embedding vector');
             $table->string('password');
             $table->rememberToken();
             $table->timestamps();

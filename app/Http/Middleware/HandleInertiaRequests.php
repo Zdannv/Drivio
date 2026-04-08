@@ -33,8 +33,7 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'auth' => [
-                // Load relasi skills agar tersedia di Vue
-                'user' => $request->user()?->load('skills'),
+                'user' => $request->user(),
             ],
 
             // Menambahkan status fitur absensi secara global ke frontend
@@ -45,7 +44,6 @@ class HandleInertiaRequests extends Middleware
                 'error' => session()->pull('error'),
                 'info' => session()->pull('info'),
                 'warning' => session()->pull('warning'),
-                'import_errors' => session()->pull('import_errors'),
             ],
         ];
     }

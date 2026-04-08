@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Attendance extends Model
+class TrackingLog extends Model
 {
     use HasFactory;
 
@@ -15,15 +15,10 @@ class Attendance extends Model
      * @var array<int, string>
      */
     protected $fillable = [
-        'user_id',
+        'driver_id',
         'delivery_id',
-        'type',
-        'photo_path',
-        'face_similarity_score',
-        'validation_status',
         'latitude',
         'longitude',
-        'address',
     ];
 
     /**
@@ -34,22 +29,21 @@ class Attendance extends Model
     protected function casts(): array
     {
         return [
-            'latitude'             => 'decimal:8',
-            'longitude'            => 'decimal:8',
-            'face_similarity_score' => 'double',
+            'latitude'  => 'decimal:8',
+            'longitude' => 'decimal:8',
         ];
     }
 
     /**
-     * The user (driver) who submitted this attendance record.
+     * The driver who generated this tracking point.
      */
-    public function user()
+    public function driver()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'driver_id');
     }
 
     /**
-     * The delivery this attendance record is linked to (if any).
+     * The delivery this tracking point belongs to (if any).
      */
     public function delivery()
     {
