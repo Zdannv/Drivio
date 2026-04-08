@@ -1,10 +1,12 @@
 <script setup>
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { ref, nextTick } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import axios from 'axios';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
-defineOptions({ layout: AuthenticatedLayout });
-const props = defineProps({
+defineProps({
     deliveries: Array,
     drivers: Array,
 });
@@ -18,137 +20,313 @@ const form = useForm({
     destination_lng: '',
 });
 
-const submit = () => {
-    form.post('/deliveries', {
-        onSuccess: () => {
-            showModal.value = false;
-            form.reset();
-            alert('Delivery created successfully.');
-        },
-        onError: () => {
-            alert('Error dispatching delivery. Refer to the form hints highlighted in red.');
+// Map & Geocoding State
+let map = null;
+let marker = null;
+const searchResults = ref([]);
+const isSearching = ref(false);
+let searchTimeout = null;
+
+// Custom Map Marker Icon
+const createIcon = () => {
+    return L.divIcon({
+        className: 'custom-div-icon',
+        html: `<div style="background-color: #059669; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);"></div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+};
+
+const initMap = async () => {
+    await nextTick(); // Ensure the modal DOM is rendered
+    
+    if (map) {
+        map.remove();
+    }
+    
+    // Default coordination focus to Surabaya
+    const defaultLat = form.destination_lat || -7.2504;
+    const defaultLng = form.destination_lng || 112.7688;
+
+    map = L.map('modal-map', { zoomControl: false }).setView([defaultLat, defaultLng], 13);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+
+    if (form.destination_lat && form.destination_lng) {
+        marker = L.marker([form.destination_lat, form.destination_lng], { icon: createIcon() }).addTo(map);
+    }
+
+    // Reverse Geocoding via click
+    map.on('click', async (e) => {
+        const { lat, lng } = e.latlng;
+        updateMarker(lat, lng);
+        
+        try {
+            // Fetch the physical address using Nominatim API
+            const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            if (response.data && response.data.display_name) {
+                form.destination_address = response.data.display_name;
+                searchResults.value = [];
+            }
+        } catch (error) {
+            console.error('Reverse geocoding failed:', error);
         }
+    });
+
+    // Timeout fixes Leaflet instantiation bugs within dynamically rendered modals
+    setTimeout(() => {
+        map.invalidateSize();
+    }, 200);
+};
+
+const updateMarker = (lat, lng) => {
+    form.destination_lat = lat.toFixed(6);
+    form.destination_lng = lng.toFixed(6);
+
+    if (marker) {
+        marker.setLatLng([lat, lng]);
+    } else {
+        marker = L.marker([lat, lng], { icon: createIcon() }).addTo(map);
+    }
+    map.panTo([lat, lng]);
+};
+
+// Forward Geocoding via input typing (Debounced Autocomplete)
+const onAddressInput = (event) => {
+    const query = event.target.value;
+    form.destination_address = query;
+    
+    if (searchTimeout) clearTimeout(searchTimeout);
+    
+    // Require at least 3 characters before pinging the external API
+    if (query.length < 3) {
+        searchResults.value = [];
+        return;
+    }
+
+    searchTimeout = setTimeout(async () => {
+        isSearching.value = true;
+        try {
+            const response = await axios.get(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+            searchResults.value = response.data;
+        } catch (error) {
+            console.error('Forward geocoding failed:', error);
+        } finally {
+            isSearching.value = false;
+        }
+    }, 500); // 500ms debounce
+};
+
+const selectResult = (result) => {
+    form.destination_address = result.display_name;
+    updateMarker(parseFloat(result.lat), parseFloat(result.lon));
+    searchResults.value = [];
+};
+
+// Explicit Modal Controls
+const openModal = () => {
+    showModal.value = true;
+    initMap();
+};
+
+const closeModal = () => {
+    showModal.value = false;
+    form.reset();
+    form.clearErrors();
+    searchResults.value = [];
+    if (map) {
+        map.remove();
+        map = null;
+        marker = null;
+    }
+};
+
+const submit = () => {
+    form.post(route('deliveries.store'), {
+        onSuccess: () => {
+            closeModal();
+            alert('Delivery created successfully!');
+        },
     });
 };
 </script>
 
 <template>
-  <Head title="Manage Deliveries" />
+    <Head title="Manage Deliveries" />
 
-  <div class="py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-    <div class="sm:flex sm:items-center">
-      <div class="sm:flex-auto">
-        <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Active Deliveries</h1>
-        <p class="mt-2 text-sm text-gray-700 dark:text-gray-400">A complete list of all logistical deliveries across the system.</p>
-      </div>
-      <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
-        <button @click="showModal = true" type="button" class="block rounded-md bg-emerald-600 px-4 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-emerald-500">
-          Create Delivery Task
-        </button>
-      </div>
-    </div>
+    <AuthenticatedLayout>
+        <div class="py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+            <div class="sm:flex sm:items-center">
+                <div class="sm:flex-auto">
+                    <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Active Deliveries</h1>
+                    <p class="mt-2 text-sm text-gray-700 dark:text-gray-400">A complete list of all logistical deliveries across the system.</p>
+                </div>
+                <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+                    <button
+                        @click="openModal"
+                        type="button"
+                        class="block rounded-md bg-emerald-600 px-4 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 transition"
+                    >
+                        Create Delivery Task
+                    </button>
+                </div>
+            </div>
 
-    <!-- Table -->
-    <div class="mt-8 flow-root">
-      <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
-        <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
-          <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-            <table class="min-w-full divide-y divide-gray-300 dark:divide-slate-700 bg-white dark:bg-slate-800">
-              <thead class="bg-gray-50 dark:bg-slate-900">
-                <tr>
-                  <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">ID</th>
-                  <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Assigned Driver</th>
-                  <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Destination</th>
-                  <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Coordinates</th>
-                  <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Status</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-200 dark:divide-slate-700">
-                <tr v-for="delivery in deliveries" :key="delivery.id">
-                  <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-white sm:pl-6">#{{ delivery.id }}</td>
-                  <td class="whitespace-nowrap px-3 py-4 text-sm font-medium text-indigo-600 dark:text-indigo-400">{{ delivery.driver?.name || 'Unassigned' }}</td>
-                  <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{{ delivery.destination_address }}</td>
-                  <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 font-mono">{{ delivery.destination_lat }}, {{ delivery.destination_lng }}</td>
-                  <td class="whitespace-nowrap px-3 py-4 text-sm uppercase">
-                    <span class="px-2 py-1 text-xs font-bold rounded-full" 
-                          :class="{
-                             'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400': delivery.status === 'pending',
-                             'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400': delivery.status === 'on_way',
-                             'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400': delivery.status === 'completed'
-                          }">
-                       {{ delivery.status.replace('_', ' ') }}
-                    </span>
-                  </td>
-                </tr>
-                <tr v-if="deliveries.length === 0">
-                    <td colspan="5" class="text-center py-8 text-gray-500">No deliveries created yet.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal -->
-    <div v-if="showModal" class="relative z-50 animate-fade-in-up" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm transition-opacity" @click.self="showModal = false"></div>
-      <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
-        <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
-          <div class="relative transform overflow-hidden rounded-2xl bg-white dark:bg-slate-800 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-slate-700">
-            <form @submit.prevent="submit" class="p-6">
-                <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-6">Create Delivery Task</h3>
-                
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Assign Driver</label>
-                        <select v-model="form.driver_id" class="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:text-sm">
-                            <option value="" disabled>Select a driver...</option>
-                            <option v-for="driver in drivers" :key="driver.id" :value="driver.id">
-                                {{ driver.name }} ({{ driver.email }})
-                            </option>
-                        </select>
-                        <div v-if="form.errors.driver_id" class="text-red-500 text-xs mt-1">{{ form.errors.driver_id }}</div>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Destination Address</label>
-                        <input v-model="form.destination_address" type="text" placeholder="e.g. 123 Jalan Raya Logistics" class="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:text-sm">
-                        <div v-if="form.errors.destination_address" class="text-red-500 text-xs mt-1">{{ form.errors.destination_address }}</div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Latitude</label>
-                            <input v-model="form.destination_lat" type="number" step="any" placeholder="-7.2504" class="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:text-sm">
-                            <div v-if="form.errors.destination_lat" class="text-red-500 text-xs mt-1">{{ form.errors.destination_lat }}</div>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Longitude</label>
-                            <input v-model="form.destination_lng" type="number" step="any" placeholder="112.7688" class="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:text-sm">
-                            <div v-if="form.errors.destination_lng" class="text-red-500 text-xs mt-1">{{ form.errors.destination_lng }}</div>
+            <!-- Table -->
+            <div class="mt-8 flow-root">
+                <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+                    <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+                        <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
+                            <table class="min-w-full divide-y divide-gray-300 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                                <thead class="bg-gray-50 dark:bg-slate-900">
+                                    <tr>
+                                        <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">ID</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Assigned Driver</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Destination</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Coordinates</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-slate-700">
+                                    <tr v-for="delivery in deliveries" :key="delivery.id">
+                                        <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-white sm:pl-6">#{{ delivery.id }}</td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm font-medium text-indigo-600 dark:text-indigo-400">{{ delivery.driver?.name || 'Unassigned' }}</td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" :title="delivery.destination_address">{{ delivery.destination_address }}</td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 font-mono">{{ delivery.destination_lat }}, {{ delivery.destination_lng }}</td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm">
+                                            <span class="px-2 py-1 text-xs font-bold rounded-full uppercase"
+                                                :class="{
+                                                    'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400': delivery.status === 'pending',
+                                                    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400': delivery.status === 'on_way',
+                                                    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400': delivery.status === 'completed'
+                                                }">
+                                                {{ delivery.status.replace('_', ' ') }}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="deliveries.length === 0">
+                                        <td colspan="5" class="text-center py-8 text-gray-500 dark:text-gray-400">No deliveries created yet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="mt-8 flex justify-end gap-3">
-                    <button type="button" @click="showModal = false" class="rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700">Cancel</button>
-                    <button type="submit" :disabled="form.processing" class="inline-flex justify-center rounded-md border border-transparent bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50">Dispatch Delivery</button>
+            <!-- Modal Overlay -->
+            <Teleport to="body">
+                <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center">
+                    <!-- Backdrop -->
+                    <div class="absolute inset-0 bg-gray-900/70 backdrop-blur-sm" @click="closeModal"></div>
+
+                    <!-- Modal Panel -->
+                    <div class="relative z-10 w-full max-w-2xl mx-4 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[90vh]">
+                        
+                        <div class="flex items-center justify-between p-6 border-b border-gray-200 dark:border-slate-700 shrink-0">
+                            <h3 class="text-xl font-bold text-gray-900 dark:text-white">Dispatch Logistics</h3>
+                            <button type="button" @click="closeModal" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        <div class="p-6 overflow-y-auto grow custom-scrollbar">
+                            <form @submit.prevent="submit" id="deliveryForm" class="space-y-5">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assign Driver</label>
+                                    <select v-model="form.driver_id" class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition">
+                                        <option value="" disabled>Select a driver...</option>
+                                        <option v-for="driver in drivers" :key="driver.id" :value="driver.id">
+                                            {{ driver.name }} ({{ driver.email }})
+                                        </option>
+                                    </select>
+                                    <p v-if="form.errors.driver_id" class="text-red-500 text-xs mt-1">{{ form.errors.driver_id }}</p>
+                                </div>
+
+                                <div class="relative">
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination Location</label>
+                                    <input 
+                                        :value="form.destination_address"
+                                        @input="onAddressInput"
+                                        type="text" 
+                                        placeholder="Type an address or drop a pin on the map..." 
+                                        autocomplete="off"
+                                        class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
+                                    >
+                                    <p v-if="form.errors.destination_address" class="text-red-500 text-xs mt-1">{{ form.errors.destination_address }}</p>
+
+                                    <!-- Geocoding Autocomplete Dropdown -->
+                                    <div v-if="searchResults.length > 0" class="absolute left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+                                        <ul class="py-1 text-sm text-gray-700 dark:text-gray-300 divide-y divide-gray-100 dark:divide-slate-700">
+                                            <li v-for="result in searchResults" :key="result.place_id" 
+                                                @click="selectResult(result)"
+                                                class="px-4 py-3 hover:bg-emerald-50 dark:hover:bg-slate-700 cursor-pointer transition truncate"
+                                            >
+                                                {{ result.display_name }}
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div v-if="isSearching" class="absolute left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-gray-200 dark:border-slate-700 p-3 text-center text-sm text-gray-500">
+                                        <span class="animate-pulse">Searching Map Database...</span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div id="modal-map" class="h-[280px] w-full rounded-xl border border-gray-300 dark:border-slate-600 z-0 overflow-hidden ring-1 ring-black/5 shadow-inner"></div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Latitude</label>
+                                        <input v-model="form.destination_lat" type="number" step="any" readonly class="block w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-gray-400 px-3 py-2 text-sm shadow-sm outline-none cursor-not-allowed">
+                                        <p v-if="form.errors.destination_lat" class="text-red-500 text-xs mt-1">{{ form.errors.destination_lat }}</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Longitude</label>
+                                        <input v-model="form.destination_lng" type="number" step="any" readonly class="block w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-gray-400 px-3 py-2 text-sm shadow-sm outline-none cursor-not-allowed">
+                                        <p v-if="form.errors.destination_lng" class="text-red-500 text-xs mt-1">{{ form.errors.destination_lng }}</p>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="p-6 border-t border-gray-200 dark:border-slate-700 flex justify-end gap-3 shrink-0 bg-gray-50 dark:bg-slate-800/80">
+                            <button type="button" @click="closeModal" class="rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition">
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                form="deliveryForm"
+                                :disabled="form.processing"
+                                class="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm hover:shadow-md"
+                            >
+                                {{ form.processing ? 'Dispatching Delivery...' : 'Create Delivery Task' }}
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </form>
-          </div>
+            </Teleport>
         </div>
-      </div>
-    </div>
-  </div>
+    </AuthenticatedLayout>
 </template>
 
 <style scoped>
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Custom Scrollbar for better UX inside modal */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
 }
-.animate-fade-in-up {
-  animation: fadeInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 20px;
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #475569;
 }
 </style>

@@ -36,7 +36,7 @@ class AttendanceController extends Controller
     /**
      * Store a new attendance record (face verification + GPS).
      */
-    public function store(Request $request, FaceRecognizeService $faceService)
+    public function store(Request $request)
     {
         $request->validate([
             'image'       => 'required|string',
@@ -47,6 +47,7 @@ class AttendanceController extends Controller
         ]);
 
         $user = auth()->user();
+        $faceService = app(\App\Services\FaceRecognizeService::class);
 
         try {
             $verificationResult = $faceService->verifyFace($user, $request->image);
