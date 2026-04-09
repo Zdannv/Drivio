@@ -59,8 +59,7 @@ const handleCapture = async (payload) => {
             alert(`❌ Error: ${response.data.message}`);
         }
     } catch (error) {
-        const msg = error.response?.data?.message || 'Verification failed. Please try again.';
-        alert(`❌ Error: ${msg}`);
+        alert(error.response?.data?.message || 'Verification failed');
     } finally {
         showCameraModal.value = false;
         fetchDeliveries();

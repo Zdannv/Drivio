@@ -126,25 +126,6 @@ class AttendanceController extends Controller
         return response()->json(['message' => 'Export not yet implemented.'], 501);
     }
 
-    /**
-     * Toggle the global attendance feature on/off.
-     */
-    public function toggleStatus(Request $request)
-    {
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Unauthorized action.');
-        }
-
-        $request->validate([
-            'is_enabled' => 'required|boolean',
-        ]);
-
-        Cache::forever('attendance_enabled', $request->is_enabled);
-
-        $status = $request->is_enabled ? 'diaktifkan' : 'dinonaktifkan';
-
-        return back()->with('success', "Fitur absensi berhasil $status.");
-    }
 
     /**
      * Reverse geocode a coordinate pair to a human-readable address.

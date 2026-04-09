@@ -30,9 +30,7 @@ Route::get('/recognize', function () {
     return Inertia::render('recognize/Index');
 })->name('attendance.recognize')->middleware('check.attendance');
 
-Route::post('/attendance/store', [AttendanceController::class, 'store'])->name('attendance.store')->middleware('check.attendance');
-
-Route::post('/attendance/toggle', [AttendanceController::class, 'toggleStatus'])->name('attendance.toggle');
+Route::post('/attendance/store', [AttendanceController::class, 'store'])->name('attendance.store');
 
 Route::middleware('auth')->group(function () {
     Route::get('/deliveries', [DeliveryController::class, 'index'])->name('deliveries.index');
