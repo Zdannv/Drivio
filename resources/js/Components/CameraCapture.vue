@@ -100,9 +100,10 @@ const stopCamera = () => {
 };
 
 const getLocation = () => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         if (!navigator.geolocation) {
-            reject('Geolocation is not supported by your browser');
+            console.warn('Geolocation not supported. Using fallback coordinates.');
+            resolve({ latitude: -7.2504, longitude: 112.7688 });
         } else {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
@@ -112,10 +113,10 @@ const getLocation = () => {
                     });
                 },
                 (error) => {
-                    console.error('Geolocation error:', error);
-                    reject('Unable to retrieve your location');
+                    console.warn('Geolocation error. Using fallback coordinates:', error);
+                    resolve({ latitude: -7.2504, longitude: 112.7688 });
                 },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
             );
         }
     });

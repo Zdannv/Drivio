@@ -5,13 +5,9 @@ export default { layout: AuthenticatedLayout };
 
 <script setup>
 import { Head, usePage } from '@inertiajs/vue3';
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import CameraCapture from '@/Components/CameraCapture.vue';
-
-// Import Leaflet directly for Admin mapping
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
 const user = usePage().props.auth.user;
 
@@ -76,103 +72,17 @@ const updateDeliveryStatus = async (id, status) => {
     }
 };
 
-/* ----------------------------------
-   ADMIN LIVE MAP STATE & LOGIC
------------------------------------ */
-const map = ref(null);
-const markers = ref({});
-let pollInterval = null;
-
-// Custom icon avoids Vite 404 image resolving issues
-const customIcon = L.divIcon({
-    className: 'custom-leaflet-icon',
-    html: `<div style="background-color: #3b82f6; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 6px rgba(0,0,0,0.5);"></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10]
-});
-
-const initializeMapAndStartTracking = async () => {
-    // 1. Init Leaflet
-    map.value = L.map('map').setView([-7.2504, 112.7688], 12);
-    
-    // 2. Attach Map Tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map.value);
-
-    // 3. Kick off loop
-    await fetchTracking();
-    pollInterval = setInterval(fetchTracking, 10000);
-};
-
-const fetchTracking = async () => {
-    try {
-        const response = await axios.get('/tracking/latest');
-        const drivers = response.data;
-        
-        drivers.forEach(d => {
-            if (d.tracking_logs && d.tracking_logs.length > 0) {
-                const log = d.tracking_logs[0];
-                const latLng = [log.latitude, log.longitude];
-                
-                if (markers.value[d.id]) {
-                    // Marker exists, smoothly update position
-                    markers.value[d.id].setLatLng(latLng);
-                } else {
-                    // Create new marker
-                    const marker = L.marker(latLng, { icon: customIcon })
-                        .bindPopup(`<strong class="text-gray-800">${d.name}</strong><br><span class="text-xs text-gray-500 font-semibold px-2 py-0.5 bg-gray-100 rounded-full mt-1 inline-block">DRIVER</span>`)
-                        .addTo(map.value);
-                    markers.value[d.id] = marker;
-                }
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching tracking overlay data:', error);
-    }
-};
-
-
-/* ----------------------------------
-   LIFECYCLE HOOKS
------------------------------------ */
 onMounted(() => {
-    if (user.role === 'driver') {
-        fetchDeliveries();
-    } else if (user.role === 'admin') {
-        nextTick(() => {
-            initializeMapAndStartTracking();
-        });
-    }
+    fetchDeliveries();
 });
-
-onUnmounted(() => {
-    if (pollInterval) clearInterval(pollInterval);
-    if (map.value) map.value.remove();
-});
-
 </script>
 
 <template>
-  <Head title="Dashboard" />
+  <Head title="Driver Dashboard" />
 
   <div class="w-full min-h-[calc(100vh-4rem)] bg-gray-50 dark:bg-slate-900 py-6 sm:py-10">
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-gray-800 dark:text-gray-200">
       
-      <!-- ADMIN VIEW -->
-      <div v-if="user.role === 'admin'" class="flex flex-col h-auto">
-         <h1 class="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Live Map Dashboard</h1>
-         <p class="text-gray-500 mb-6 font-medium">Real-time driver positioning overview.</p>
-         
-         <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-slate-700">
-             <!-- The Leaflet Hook -->
-             <div id="map" class="h-[600px] w-full z-0 relative isolate"></div>
-         </div>
-      </div>
-
-      <!-- DRIVER VIEW -->
-      <div v-else>
-        <!-- Header Profile Mobile -->
         <h1 class="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white mb-8">
             Hello, {{ user.name }}
         </h1>
@@ -181,6 +91,25 @@ onUnmounted(() => {
             
             <!-- Left/Top: General Actions -->
             <div class="lg:col-span-1 space-y-6">
+                <!-- Profile Block Restored & Modernized -->
+                <div class="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl transform translate-x-10 -translate-y-10"></div>
+                    <div class="relative z-10 flex items-center gap-4">
+                        <div class="w-16 h-16 rounded-full bg-white/20 border-2 border-white/50 p-1 shrink-0 overflow-hidden backdrop-blur-sm">
+                            <img v-if="user.avatar" :src="user.avatar" alt="Avatar" class="w-full h-full object-cover rounded-full" />
+                            <div v-else class="w-full h-full flex items-center justify-center font-bold text-xl">{{ user.name.charAt(0) }}</div>
+                        </div>
+                        <div>
+                            <p class="text-indigo-200 font-medium text-sm">Valid License</p>
+                            <h2 class="text-xl font-extrabold tracking-tight">{{ user.name }}</h2>
+                            <div class="inline-flex items-center gap-1.5 bg-black/20 px-2.5 py-1 rounded-full text-xs font-medium mt-2 backdrop-blur-md">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Online Platform
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-6">
                     <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-6">Daily Attendance</h3>
                     
@@ -235,13 +164,6 @@ onUnmounted(() => {
                                 <div>
                                     <p class="text-sm font-bold text-gray-800 dark:text-slate-200 uppercase tracking-wide">Delivery #{{ delivery.id }}</p>
                                     <h4 class="text-gray-900 dark:text-white font-medium text-lg leading-tight mt-1">{{ delivery.destination_address }}</h4>
-                                    <div class="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                        {{ delivery.destination_lat }}, {{ delivery.destination_lng }}
-                                    </div>
                                     <div class="mt-2 text-xs font-semibold px-2 py-1 inline-block rounded-md uppercase"
                                          :class="{
                                             'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400': delivery.status === 'pending',
@@ -271,7 +193,7 @@ onUnmounted(() => {
                 </div>
             </div>
         </div>
-      </div>
+
     </div>
   </div>
 

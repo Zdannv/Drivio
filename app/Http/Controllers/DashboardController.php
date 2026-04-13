@@ -10,6 +10,12 @@ class DashboardController extends Controller
 {
     public function index()
     {
-        return Inertia::render('Dashboard');
+        $user = auth()->user();
+
+        if ($user && $user->role === 'admin') {
+            return Inertia::render('Admin/Dashboard');
+        }
+
+        return Inertia::render('Driver/Dashboard');
     }
 }

@@ -75,16 +75,16 @@ const handleOpenOptions = () => {
 // Grouping Logic
 const groupedAttendances = computed(() => {
   const grouped = {};
-  if (props.attendances && props.attendances.data) {
-      props.attendances.data.forEach(item => {
-        const date = moment(item.check_in_time).format('DD MMMM YYYY');
-        if (!grouped[date]) {
-          grouped[date] = { items: [], count: 0 };
-        }
-        grouped[date].items.push(item);
-        grouped[date].count += 1;
-      });
-  }
+    if (props.attendances && props.attendances.data) {
+        props.attendances.data.forEach(item => {
+          const date = moment(item.created_at).format('DD MMMM YYYY');
+          if (!grouped[date]) {
+            grouped[date] = { items: [], count: 0 };
+          }
+          grouped[date].items.push(item);
+          grouped[date].count += 1;
+        });
+    }
   return grouped;
 });
 
@@ -276,8 +276,8 @@ const resetFilter = () => {
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Date / Time</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Employee</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Type</th>
-                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Check-in</th>
-                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-right">Check-out</th>
+                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Action Time</th>
+                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Proof Photo</th>
                     </tr>
                     </thead>
                     <tbody class="divide-y divide-white/20 dark:divide-white/5">
@@ -297,19 +297,19 @@ const resetFilter = () => {
                             </tr>
 
                             <tr v-for="item in group.items" :key="item.id" class="hover:bg-white/50 dark:hover:bg-white/5 transition duration-200 group">
-                                <td class="p-5 text-sm text-gray-500 dark:text-slate-400 font-medium">
-                                    {{ formatDate(item.check_in_time) }}
+                                <td class="p-5 text-sm text-gray-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                                    {{ formatDate(item.created_at) }}
                                 </td>
                                 <td class="p-5">
                                     <div class="flex items-center gap-3">
                                         <div class="w-8 h-8 rounded-full bg-white/60 dark:bg-slate-800/50 flex items-center justify-center text-xs font-bold text-primary-600 dark:text-primary-400 border border-primary-100/50 dark:border-slate-700/50 shadow-sm backdrop-blur-sm">
-                                            {{ item.user.name.charAt(0).toUpperCase() }}
+                                            {{ item.user?.name ? item.user.name.charAt(0).toUpperCase() : 'U' }}
                                         </div>
                                         <div>
                                             <div class="font-bold text-gray-800 dark:text-slate-200 text-sm group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                                                {{ item.user.name }}
+                                                {{ item.user?.name || 'Unknown User' }}
                                             </div>
-                                            <div class="text-xs text-gray-500 dark:text-slate-400">{{ item.user.email }}</div>
+                                            <div class="text-xs text-gray-500 dark:text-slate-400">{{ item.user?.email }}</div>
                                         </div>
                                     </div>
                                 </td>
@@ -317,25 +317,28 @@ const resetFilter = () => {
                                 <td class="p-5">
                                     <span 
                                         class="inline-flex items-center px-2 py-1 rounded text-xs font-bold uppercase shadow-sm border backdrop-blur-sm"
-                                        :class="item.work_type === 'wfa' ? 'bg-indigo-50/80 text-indigo-700 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-400 dark:border-indigo-500/30' : 'bg-blue-50/80 text-blue-700 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30'"
+                                        :class="{
+                                            'bg-emerald-50/80 text-emerald-700 border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30': item.type === 'check_in',
+                                            'bg-rose-50/80 text-rose-700 border-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30': item.type === 'check_out',
+                                            'bg-blue-50/80 text-blue-700 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30': item.type === 'proof_of_delivery'
+                                        }"
                                     >
-                                        {{ item.work_type || 'WFO' }}
+                                        {{ item.type ? item.type.replace('_', ' ') : 'Unknown' }}
                                     </span>
                                 </td>
 
-                                <td class="p-5">
-                                    <span class="inline-flex items-center px-2.5 py-1 rounded-md bg-emerald-50/80 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-100/80 dark:border-emerald-500/20 backdrop-blur-sm">
-                                        {{ formatTime(item.check_in_time) }}
+                                <td class="p-5 text-center">
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-md bg-gray-50/80 dark:bg-slate-500/10 text-gray-700 dark:text-slate-300 text-xs font-bold border border-gray-200 dark:border-slate-600 backdrop-blur-sm">
+                                        {{ formatTime(item.created_at) }}
                                     </span>
                                 </td>
 
-                                <td class="p-5 text-right">
-                                    <div v-if="item.check_out_time">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md bg-rose-50/80 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 text-xs font-bold border border-rose-100/80 dark:border-rose-500/20 backdrop-blur-sm">
-                                            {{ formatTime(item.check_out_time) }}
-                                        </span>
-                                    </div>
-                                    <span v-else class="text-xs text-gray-400 italic opacity-50">-- : --</span>
+                                <td class="p-5 text-center">
+                                    <a v-if="item.photo_path" :href="`/storage/${item.photo_path}`" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition font-medium text-xs border border-indigo-100 dark:border-indigo-800 shadow-sm">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                        View Proof
+                                    </a>
+                                    <span v-else class="text-gray-400 dark:text-gray-500 text-xs italic">No Proof</span>
                                 </td>
                             </tr>
                         </template>
