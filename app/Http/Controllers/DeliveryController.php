@@ -16,9 +16,28 @@ class DeliveryController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        $deliveries = Delivery::with(['driver', 'attendances' => function ($query) {
+            $query->where('type', 'proof_of_delivery')->latest();
+        }])->orderBy('id', 'asc')->paginate(10);
+
+        $today = \Carbon\Carbon::today();
+        $drivers = \App\Models\User::where('role', 'driver')
+            ->with(['attendances' => function ($query) use ($today) {
+                $query->whereDate('created_at', $today)
+                      ->whereIn('type', ['check_in', 'check_out']);
+            }])
+            ->get()
+            ->map(function ($driver) {
+                $hasCheckIn = $driver->attendances->contains('type', 'check_in');
+                $hasCheckOut = $driver->attendances->contains('type', 'check_out');
+                $driver->is_online = $hasCheckIn && !$hasCheckOut;
+                unset($driver->attendances);
+                return $driver;
+            });
+
         return inertia('Delivery/Index', [
-            'deliveries' => Delivery::with('driver')->latest()->get(),
-            'drivers'    => \App\Models\User::where('role', 'driver')->latest()->get()
+            'deliveries' => $deliveries,
+            'drivers'    => $drivers
         ]);
     }
 

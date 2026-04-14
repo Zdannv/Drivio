@@ -2,12 +2,14 @@
 import { ref, nextTick } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import Pagination from '@/Components/Pagination.vue';
+import moment from 'moment';
 import axios from 'axios';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 defineProps({
-    deliveries: Array,
+    deliveries: Object,
     drivers: Array,
 });
 
@@ -185,18 +187,28 @@ const submit = () => {
                                 <thead class="bg-gray-50 dark:bg-slate-900">
                                     <tr>
                                         <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">ID</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Created At</th>
                                         <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Assigned Driver</th>
                                         <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Destination</th>
-                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Coordinates</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">PoD Location</th>
                                         <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Status</th>
+                                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Proof Photo</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 dark:divide-slate-700">
-                                    <tr v-for="delivery in deliveries" :key="delivery.id">
+                                    <tr v-for="delivery in deliveries.data" :key="delivery.id">
                                         <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-white sm:pl-6">#{{ delivery.id }}</td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{{ moment(delivery.created_at).format('DD MMM YYYY, HH:mm') }}</td>
                                         <td class="whitespace-nowrap px-3 py-4 text-sm font-medium text-indigo-600 dark:text-indigo-400">{{ delivery.driver?.name || 'Unassigned' }}</td>
                                         <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" :title="delivery.destination_address">{{ delivery.destination_address }}</td>
-                                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 font-mono">{{ delivery.destination_lat }}, {{ delivery.destination_lng }}</td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                            <div v-if="delivery.status === 'completed' && delivery.attendances && delivery.attendances.length > 0" class="truncate max-w-[200px]" :title="delivery.attendances[0].address || 'No Address available'">
+                                                {{ delivery.attendances[0].address || 'No Address available' }}
+                                            </div>
+                                            <div v-else class="text-gray-400 dark:text-gray-500 italic">
+                                                Pending Verification
+                                            </div>
+                                        </td>
                                         <td class="whitespace-nowrap px-3 py-4 text-sm">
                                             <span class="px-2 py-1 text-xs font-bold rounded-full uppercase"
                                                 :class="{
@@ -207,12 +219,26 @@ const submit = () => {
                                                 {{ delivery.status.replace('_', ' ') }}
                                             </span>
                                         </td>
+                                        <td class="whitespace-nowrap px-3 py-4 text-sm">
+                                            <a v-if="delivery.status === 'completed' && delivery.attendances && delivery.attendances.length > 0 && delivery.attendances[0]?.photo_path"
+                                               :href="'/storage/' + delivery.attendances[0].photo_path" 
+                                               target="_blank" 
+                                               class="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 font-medium text-xs flex items-center gap-1">
+                                               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                               View
+                                            </a>
+                                            <span v-else class="text-gray-400 dark:text-gray-500 italic text-xs">N/A</span>
+                                        </td>
                                     </tr>
-                                    <tr v-if="deliveries.length === 0">
-                                        <td colspan="5" class="text-center py-8 text-gray-500 dark:text-gray-400">No deliveries created yet.</td>
+                                    <tr v-if="deliveries.data.length === 0">
+                                        <td colspan="7" class="text-center py-8 text-gray-500 dark:text-gray-400">No deliveries created yet.</td>
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                        
+                        <div class="mt-6 flex justify-end w-full" v-if="deliveries.links">
+                            <Pagination :links="deliveries.links" />
                         </div>
                     </div>
                 </div>
@@ -241,7 +267,7 @@ const submit = () => {
                                     <select v-model="form.driver_id" class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition">
                                         <option value="" disabled>Select a driver...</option>
                                         <option v-for="driver in drivers" :key="driver.id" :value="driver.id">
-                                            {{ driver.name }} ({{ driver.email }})
+                                            {{ driver.name }} {{ driver.is_online ? '(🟢 Online)' : '(⚪ Offline)' }}
                                         </option>
                                     </select>
                                     <p v-if="form.errors.driver_id" class="text-red-500 text-xs mt-1">{{ form.errors.driver_id }}</p>

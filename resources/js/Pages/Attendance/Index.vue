@@ -30,8 +30,7 @@ onMounted(() => {
 // Page & Props
 const page = usePage();
 const props = defineProps({
-  attendances: Object, 
-  users: Array
+  attendances: Object
 });
 
 const role = computed(() => page.props.auth.user.role);
@@ -58,7 +57,7 @@ const queryParams = computed(() => {
 
 // Filter States
 const options = ref(['other', 'co'].includes(role.value) ? true : false);
-const id = ref(Number(queryParams.value.user_id) || null);
+const search = ref(queryParams.value.search || '');
 const dates = ref(
   queryParams.value.from && queryParams.value.to
     ? [
@@ -95,15 +94,19 @@ const formatDate = (date) => moment(date).format('DD MMMM YYYY');
 // Watchers for Filters
 const updateParams = () => {
   const params = {};
-  if (id.value) params.user_id = id.value;
+  if (search.value) params.search = search.value;
   if (dates.value && dates.value.length === 2) {
     params.from = moment(dates.value[0]).format('DD-MM-YYYY');
     params.to = moment(dates.value[1]).format('DD-MM-YYYY');
   }
-  router.get(route('attendance', params), {}, { preserveState: true, replace: true });
+  router.get(route('attendance', params), {}, { preserveState: true, replace: true, preserveScroll: true });
 };
 
-watch(id, updateParams);
+watch(search, () => {
+  // debounce text search to avoid spamming requests
+  clearTimeout(window.searchTimeout);
+  window.searchTimeout = setTimeout(updateParams, 300);
+});
 
 const handleDateChange = (newDate) => {
     dates.value = newDate; 
@@ -113,7 +116,7 @@ const handleDateChange = (newDate) => {
 // Actions
 const exportAttendance = (summary) => {
   const params = {};
-  if (id.value) params.user_id = id.value;
+  if (search.value) params.search = search.value;
   if (dates.value && dates.value.length === 2) {
     params.from = moment(dates.value[0]).format('DD-MM-YYYY');
     params.to = moment(dates.value[1]).format('DD-MM-YYYY');
@@ -123,7 +126,7 @@ const exportAttendance = (summary) => {
 };
 
 const resetFilter = () => {
-    id.value = null;
+    search.value = '';
     dates.value = [];
     router.get(route('attendance'));
 }
@@ -208,16 +211,12 @@ const resetFilter = () => {
                     />
                 </div>
                 <div class="w-full sm:w-1/2 xl:w-72">
-                    <label class="text-[10px] font-bold text-gray-500 dark:text-slate-400 mb-1 block uppercase tracking-wider">Filter User</label>
-                    <SelectInput
-                        id="user"
-                        v-model="id"
-                        :options="users"
-                        label="name"
-                        valueKey="id"
-                        class="block w-full h-[42px]"
-                        placeholder="Select user..."
-                        :dark="true"
+                    <label class="text-[10px] font-bold text-gray-500 dark:text-slate-400 mb-1 block uppercase tracking-wider">Search Driver Name</label>
+                    <input
+                        type="text"
+                        v-model="search"
+                        class="block w-full h-[42px] rounded-lg border border-white/50 dark:border-white/10 bg-white/50 dark:bg-slate-800/50 text-gray-800 dark:text-slate-200 text-sm shadow-sm focus:ring-emerald-500 focus:border-emerald-500 backdrop-blur-md outline-none transition"
+                        placeholder="Type a name..."
                     />
                 </div>
                 </div>
@@ -275,7 +274,7 @@ const resetFilter = () => {
                     <tr>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Date / Time</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Employee</th>
-                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Type</th>
+                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Location</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Action Time</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Proof Photo</th>
                     </tr>
@@ -315,16 +314,9 @@ const resetFilter = () => {
                                 </td>
                                 
                                 <td class="p-5">
-                                    <span 
-                                        class="inline-flex items-center px-2 py-1 rounded text-xs font-bold uppercase shadow-sm border backdrop-blur-sm"
-                                        :class="{
-                                            'bg-emerald-50/80 text-emerald-700 border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30': item.type === 'check_in',
-                                            'bg-rose-50/80 text-rose-700 border-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30': item.type === 'check_out',
-                                            'bg-blue-50/80 text-blue-700 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30': item.type === 'proof_of_delivery'
-                                        }"
-                                    >
-                                        {{ item.type ? item.type.replace('_', ' ') : 'Unknown' }}
-                                    </span>
+                                    <div class="text-sm font-medium text-gray-700 dark:text-slate-300 line-clamp-2 max-w-[200px]" :title="item.address || 'Location unavailable'">
+                                        {{ item.address || 'Location unavailable' }}
+                                    </div>
                                 </td>
 
                                 <td class="p-5 text-center">

@@ -4,12 +4,17 @@ export default { layout: AuthenticatedLayout };
 </script>
 
 <script setup>
-import { Head, usePage } from '@inertiajs/vue3';
+import { Head, usePage, router } from '@inertiajs/vue3';
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import CameraCapture from '@/Components/CameraCapture.vue';
 
 const user = usePage().props.auth.user;
+
+const props = defineProps({
+    isCheckedIn: Boolean,
+    hasCheckedOut: Boolean
+});
 
 /* ----------------------------------
    DRIVER STATE & LOGIC
@@ -59,6 +64,7 @@ const handleCapture = async (payload) => {
     } finally {
         showCameraModal.value = false;
         fetchDeliveries();
+        router.reload({ only: ['isCheckedIn', 'hasCheckedOut'] });
     }
 };
 
@@ -116,24 +122,32 @@ onMounted(() => {
                     <div class="grid grid-cols-2 gap-4">
                         <button 
                             @click="openCamera('check_in')"
-                            class="flex flex-col items-center justify-center p-5 rounded-xl bg-primary-50 hover:bg-primary-100 dark:bg-primary-900/20 dark:hover:bg-primary-900/40 border border-primary-100 dark:border-primary-800 transition shadow-sm group">
-                            <div class="bg-primary-500 text-white p-3 rounded-full mb-3 shadow-md group-active:scale-95 transition-transform">
+                            :disabled="props.isCheckedIn"
+                            class="flex flex-col items-center justify-center p-5 rounded-xl transition shadow-sm group border"
+                            :class="props.isCheckedIn ? 'bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 opacity-60 cursor-not-allowed' : 'bg-primary-50 hover:bg-primary-100 dark:bg-primary-900/20 dark:hover:bg-primary-900/40 border-primary-100 dark:border-primary-800'">
+                            <div class="text-white p-3 rounded-full mb-3 shadow-md transition-transform" :class="[props.isCheckedIn ? 'bg-gray-400 dark:bg-slate-600' : 'bg-primary-500', {'group-active:scale-95': !props.isCheckedIn}]">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                   <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
                                 </svg>
                             </div>
-                            <span class="font-bold text-primary-700 dark:text-primary-400 text-sm">Check In</span>
+                            <span class="font-bold text-sm" :class="props.isCheckedIn ? 'text-gray-500 dark:text-gray-400' : 'text-primary-700 dark:text-primary-400'">
+                                {{ props.isCheckedIn ? 'Checked In' : 'Check In' }}
+                            </span>
                         </button>
 
                         <button 
                             @click="openCamera('check_out')"
-                            class="flex flex-col items-center justify-center p-5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 border border-rose-100 dark:border-rose-800 transition shadow-sm group">
-                            <div class="bg-rose-500 text-white p-3 rounded-full mb-3 shadow-md group-active:scale-95 transition-transform">
+                            :disabled="!props.isCheckedIn || props.hasCheckedOut"
+                            class="flex flex-col items-center justify-center p-5 rounded-xl transition shadow-sm group border"
+                            :class="(!props.isCheckedIn || props.hasCheckedOut) ? 'bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 opacity-60 cursor-not-allowed' : 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40 border-rose-100 dark:border-rose-800'">
+                            <div class="text-white p-3 rounded-full mb-3 shadow-md transition-transform" :class="[(!props.isCheckedIn || props.hasCheckedOut) ? 'bg-gray-400 dark:bg-slate-600' : 'bg-rose-500', {'group-active:scale-95': (props.isCheckedIn && !props.hasCheckedOut)}]">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                   <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                                 </svg>
                             </div>
-                            <span class="font-bold text-rose-700 dark:text-rose-400 text-sm">Check Out</span>
+                            <span class="font-bold text-sm" :class="(!props.isCheckedIn || props.hasCheckedOut) ? 'text-gray-500 dark:text-gray-400' : 'text-rose-700 dark:text-rose-400'">
+                                {{ props.hasCheckedOut ? 'Checked Out' : 'Check Out' }}
+                            </span>
                         </button>
                     </div>
                 </div>
@@ -148,6 +162,13 @@ onMounted(() => {
                     </div>
                     
                     <div class="divide-y divide-gray-100 dark:divide-slate-700 max-h-[600px] overflow-y-auto">
+                        <div v-if="!props.isCheckedIn" class="p-4 mx-6 mt-4 mb-2 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 rounded-lg flex gap-3 text-sm font-medium">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span>Please Check In to interact with your delivery tasks.</span>
+                        </div>
+
                         <div v-if="deliveries.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
                             No active deliveries assigned to you at the moment.
                         </div>
@@ -177,11 +198,11 @@ onMounted(() => {
 
                             <!-- Actions -->
                             <div class="shrink-0 mt-4 sm:mt-0 flex">
-                                <button v-if="delivery.status === 'pending'" @click="updateDeliveryStatus(delivery.id, 'on_way')" class="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-sm transition active:scale-95 text-sm">
+                                <button v-if="delivery.status === 'pending'" @click="updateDeliveryStatus(delivery.id, 'on_way')" :disabled="!props.isCheckedIn || props.hasCheckedOut" class="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-sm transition text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 active:scale-95">
                                     Start Delivery
                                 </button>
                                 
-                                <button v-else-if="delivery.status === 'on_way'" @click="openCamera('proof_of_delivery', delivery.id)" class="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-sm transition active:scale-95 text-sm flex items-center justify-center gap-2">
+                                <button v-else-if="delivery.status === 'on_way'" @click="openCamera('proof_of_delivery', delivery.id)" :disabled="!props.isCheckedIn || props.hasCheckedOut" class="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-sm transition text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 active:scale-95">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>

@@ -54,15 +54,24 @@ class FaceRecognizeService
     public function verifyFace(User $user, string $liveImageBase64): array
     {
         if (empty($user->face_image_path)) {
-            throw new \Exception("Reference face image not found for this driver");
+            throw new \Exception("Reference face image not found for this driver in database.");
         }
 
+        $referenceImageBytes = null;
         $disk = Storage::disk('public');
-        if (!$disk->exists($user->face_image_path)) {
-            throw new \Exception("Reference face image file is missing on the server");
+        
+        // Cek apakah file ada di storage/app/public
+        if ($disk->exists($user->face_image_path)) {
+            $referenceImageBytes = $disk->get($user->face_image_path);
+        } 
+        // Fallback: Cek apakah file ada langsung di folder public/ (misal public/avatars/...)
+        elseif (file_exists(public_path($user->face_image_path))) {
+            $referenceImageBytes = file_get_contents(public_path($user->face_image_path));
+        } 
+        else {
+            throw new \Exception("Reference face image file is missing on the server. Path requested: " . $user->face_image_path);
         }
 
-        $referenceImageBytes = $disk->get($user->face_image_path);
         $referenceImageBase64 = base64_encode($referenceImageBytes);
 
         try {

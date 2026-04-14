@@ -100,10 +100,9 @@ const stopCamera = () => {
 };
 
 const getLocation = () => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
-            console.warn('Geolocation not supported. Using fallback coordinates.');
-            resolve({ latitude: -7.2504, longitude: 112.7688 });
+            reject('Geolocation is not supported by your browser.');
         } else {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
@@ -113,10 +112,21 @@ const getLocation = () => {
                     });
                 },
                 (error) => {
-                    console.warn('Geolocation error. Using fallback coordinates:', error);
-                    resolve({ latitude: -7.2504, longitude: 112.7688 });
+                    let errorMessage = 'Failed to retrieve location. Make sure GPS is enabled and permissions are granted.';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage = 'Location permission was denied. Please allow location access to continue.';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage = 'Location information is temporarily unavailable.';
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage = 'Location request timed out. Please try again.';
+                            break;
+                    }
+                    reject(errorMessage);
                 },
-                { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
             );
         }
     });

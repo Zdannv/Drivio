@@ -21,16 +21,26 @@ class AttendanceController extends Controller
      */
     public function index(Request $request)
     {
-        $users = Cache::remember('all_users_list', 1800, function () {
-            return User::orderBy('name')->get();
-        });
+        $query = Attendance::with('user', 'delivery')
+            ->whereIn('type', ['check_in', 'check_out']);
 
-        $attendances = Attendance::with('user', 'delivery')
-            ->latest()
+        if ($request->filled('search')) {
+            $query->whereHas('user', function($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->search . '%');
+            });
+        }
+
+        if ($request->filled('from') && $request->filled('to')) {
+            $from = \Carbon\Carbon::createFromFormat('d-m-Y', $request->from)->startOfDay();
+            $to = \Carbon\Carbon::createFromFormat('d-m-Y', $request->to)->endOfDay();
+            $query->whereBetween('created_at', [$from, $to]);
+        }
+
+        $attendances = $query->latest()
             ->paginate(10)
             ->withQueryString();
 
-        return Inertia::render('Attendance/Index', compact('attendances', 'users'));
+        return Inertia::render('Attendance/Index', compact('attendances'));
     }
 
     /**
@@ -49,8 +59,23 @@ class AttendanceController extends Controller
         $user = auth()->user();
         $faceService = app(\App\Services\FaceRecognizeService::class);
 
+        // FILE HANDLING: Strip out data URI first before doing anything
+        $imageBase64 = $request->image;
+        if (strpos($imageBase64, ',') !== false) {
+            @list(, $imageBase64) = explode(',', $imageBase64);
+        }
+        
+        $imageBytes = base64_decode($imageBase64);
+        if (!$imageBytes) {
+             return response()->json([
+                 'status'  => 'error',
+                 'message' => 'Invalid image encoding.'
+             ], 400);
+        }
+
         try {
-            $verificationResult = $faceService->verifyFace($user, $request->image);
+            // Gunakan $imageBase64 yang sudah di-strip prefix-nya ke Face Service
+            $verificationResult = $faceService->verifyFace($user, $imageBase64);
         } catch (\Exception $e) {
             return response()->json([
                 'status'  => 'error',
@@ -67,20 +92,6 @@ class AttendanceController extends Controller
 
         $isMatch = $verificationResult['is_match'];
         $similarityScore = $verificationResult['similarity_score'];
-
-        // FILE HANDLING: Strip out data URI and save file globally
-        $imageBase64 = $request->image;
-        if (strpos($imageBase64, ',') !== false) {
-            @list(, $imageBase64) = explode(',', $imageBase64);
-        }
-        $imageBytes = base64_decode($imageBase64);
-        
-        if (!$imageBytes) {
-             return response()->json([
-                 'status'  => 'error',
-                 'message' => 'Invalid image encoding.'
-             ], 400);
-        }
 
         $fileName = 'attendances/' . $user->id . '_' . time() . '_' . Str::random(10) . '.jpg';
         Storage::disk('public')->put($fileName, $imageBytes);

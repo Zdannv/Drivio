@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
+use App\Models\Attendance;
+use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
@@ -16,6 +18,20 @@ class DashboardController extends Controller
             return Inertia::render('Admin/Dashboard');
         }
 
-        return Inertia::render('Driver/Dashboard');
+        $today = Carbon::today();
+        $isCheckedIn = Attendance::where('user_id', $user->id)
+                        ->where('type', 'check_in')
+                        ->whereDate('created_at', $today)
+                        ->exists();
+
+        $hasCheckedOut = Attendance::where('user_id', $user->id)
+                        ->where('type', 'check_out')
+                        ->whereDate('created_at', $today)
+                        ->exists();
+
+        return Inertia::render('Driver/Dashboard', [
+            'isCheckedIn' => $isCheckedIn,
+            'hasCheckedOut' => $hasCheckedOut
+        ]);
     }
 }
