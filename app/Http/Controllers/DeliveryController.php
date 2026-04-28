@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Delivery;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 
 class DeliveryController extends Controller
 {
@@ -16,9 +17,10 @@ class DeliveryController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
+        // FIXED: Ubah orderBy('id', 'asc') menjadi latest() agar tugas terbaru di atas
         $deliveries = Delivery::with(['driver', 'attendances' => function ($query) {
             $query->where('type', 'proof_of_delivery')->latest();
-        }])->orderBy('id', 'asc')->paginate(10);
+        }])->latest()->paginate(10);
 
         $today = \Carbon\Carbon::today();
         $drivers = \App\Models\User::where('role', 'driver')
@@ -35,7 +37,7 @@ class DeliveryController extends Controller
                 return $driver;
             });
 
-        return inertia('Delivery/Index', [
+        return Inertia::render('Delivery/Index', [
             'deliveries' => $deliveries,
             'drivers'    => $drivers
         ]);
@@ -48,10 +50,15 @@ class DeliveryController extends Controller
     {
         $user = $request->user();
 
+        // FIXED: Tambahkan relasi attendances di sini agar saat request JSON, data PoD tetap terbawa
         if ($user->role === 'admin') {
-            $deliveries = Delivery::with('driver')->get();
+            $deliveries = Delivery::with(['driver', 'attendances' => function ($query) {
+                $query->where('type', 'proof_of_delivery')->latest();
+            }])->latest()->get();
         } else {
-            $deliveries = Delivery::with('driver')->where('driver_id', $user->id)->get();
+            $deliveries = Delivery::with(['driver', 'attendances' => function ($query) {
+                $query->where('type', 'proof_of_delivery')->latest();
+            }])->where('driver_id', $user->id)->latest()->get();
         }
 
         return response()->json($deliveries);
@@ -77,7 +84,6 @@ class DeliveryController extends Controller
 
         $delivery = Delivery::create($validated);
 
-        // Convert the API response back to an Inertia-compatible redirect
         return redirect()->back()->with('success', 'Delivery dispatched successfully.');
     }
 

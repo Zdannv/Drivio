@@ -40,13 +40,12 @@ const createIcon = () => {
 };
 
 const initMap = async () => {
-    await nextTick(); // Ensure the modal DOM is rendered
+    await nextTick(); 
     
     if (map) {
         map.remove();
     }
     
-    // Default coordination focus to Surabaya
     const defaultLat = form.destination_lat || -7.2504;
     const defaultLng = form.destination_lng || 112.7688;
 
@@ -62,30 +61,45 @@ const initMap = async () => {
         marker = L.marker([form.destination_lat, form.destination_lng], { icon: createIcon() }).addTo(map);
     }
 
-    // Reverse Geocoding via click
+    // MAP CLICK LOGIC (Manual Pin Drop)
     map.on('click', async (e) => {
         const { lat, lng } = e.latlng;
-        updateMarker(lat, lng);
+        
+        // 1. Update Marker & Form State instantly
+        updateMarker(lat, lng, true); 
+        
+        // 2. Clear old text and show loading state
+        form.destination_address = "Loading exact address...";
+        searchResults.value = [];
         
         try {
-            // Fetch the physical address using Nominatim API
-            const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            // Reverse Geocoding with fallback to Nominatim (More reliable for reverse)
+            const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+            
             if (response.data && response.data.display_name) {
-                form.destination_address = response.data.display_name;
-                searchResults.value = [];
+                // Formatting to make it cleaner (removing overly verbose country info if possible)
+                let cleanAddress = response.data.display_name;
+                const addressParts = cleanAddress.split(', ');
+                if(addressParts.length > 5) {
+                     cleanAddress = addressParts.slice(0, 5).join(', ');
+                }
+                form.destination_address = cleanAddress;
+            } else {
+                 form.destination_address = "Address not found at this location";
             }
         } catch (error) {
             console.error('Reverse geocoding failed:', error);
+            form.destination_address = "Network error fetching address";
         }
     });
 
-    // Timeout fixes Leaflet instantiation bugs within dynamically rendered modals
     setTimeout(() => {
         map.invalidateSize();
     }, 200);
 };
 
-const updateMarker = (lat, lng) => {
+// Modified updateMarker to handle smooth flying
+const updateMarker = (lat, lng, smoothFly = false) => {
     form.destination_lat = lat.toFixed(6);
     form.destination_lng = lng.toFixed(6);
 
@@ -94,18 +108,23 @@ const updateMarker = (lat, lng) => {
     } else {
         marker = L.marker([lat, lng], { icon: createIcon() }).addTo(map);
     }
-    map.panTo([lat, lng]);
+    
+    if(smoothFly && map) {
+        // FlyTo provides a smooth zooming animation to the new point
+        map.flyTo([lat, lng], 17, { duration: 1.5 });
+    } else if (map) {
+        map.panTo([lat, lng]);
+    }
 };
 
-// Forward Geocoding via input typing (Debounced Autocomplete)
+// Pelias/Geocode Earth Autocomplete (Significantly better than standard Nominatim for text search)
 const onAddressInput = (event) => {
     const query = event.target.value;
     form.destination_address = query;
     
     if (searchTimeout) clearTimeout(searchTimeout);
     
-    // Require at least 3 characters before pinging the external API
-    if (query.length < 3) {
+    if (query.length < 4) {
         searchResults.value = [];
         return;
     }
@@ -113,23 +132,52 @@ const onAddressInput = (event) => {
     searchTimeout = setTimeout(async () => {
         isSearching.value = true;
         try {
-            const response = await axios.get(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
-            searchResults.value = response.data;
+            // Using Photon API by Komoot (Built on ElasticSearch & OSM). 
+            // Much faster, no strict rate limits, and supports better fuzzy search than basic Nominatim
+            const response = await axios.get(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`);
+            
+            if(response.data && response.data.features) {
+                searchResults.value = response.data.features.map(f => {
+                    // Reconstruct a readable address from the properties
+                    const p = f.properties;
+                    let nameArr = [];
+                    if(p.name) nameArr.push(p.name);
+                    if(p.street) nameArr.push(p.street);
+                    if(p.city || p.town) nameArr.push(p.city || p.town);
+                    if(p.state) nameArr.push(p.state);
+                    
+                    return {
+                        id: p.osm_id,
+                        display_name: nameArr.join(', '),
+                        lat: f.geometry.coordinates[1],
+                        lon: f.geometry.coordinates[0],
+                        category: p.osm_value
+                    };
+                }).filter(r => r.display_name.length > 0);
+            }
         } catch (error) {
             console.error('Forward geocoding failed:', error);
         } finally {
             isSearching.value = false;
         }
-    }, 500); // 500ms debounce
+    }, 600); 
 };
 
+// Handle Selection from Dropdown
 const selectResult = (result) => {
     form.destination_address = result.display_name;
-    updateMarker(parseFloat(result.lat), parseFloat(result.lon));
+    // Trigger map update AND smooth fly animation
+    updateMarker(parseFloat(result.lat), parseFloat(result.lon), true);
     searchResults.value = [];
 };
 
-// Explicit Modal Controls
+// Close dropdown when clicking outside
+window.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-container')) {
+        searchResults.value = [];
+    }
+});
+
 const openModal = () => {
     showModal.value = true;
     initMap();
@@ -178,7 +226,6 @@ const submit = () => {
                 </div>
             </div>
 
-            <!-- Table -->
             <div class="mt-8 flow-root">
                 <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
                     <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
@@ -244,13 +291,10 @@ const submit = () => {
                 </div>
             </div>
 
-            <!-- Modal Overlay -->
             <Teleport to="body">
                 <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center">
-                    <!-- Backdrop -->
                     <div class="absolute inset-0 bg-gray-900/70 backdrop-blur-sm" @click="closeModal"></div>
 
-                    <!-- Modal Panel -->
                     <div class="relative z-10 w-full max-w-2xl mx-4 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[90vh]">
                         
                         <div class="flex items-center justify-between p-6 border-b border-gray-200 dark:border-slate-700 shrink-0">
@@ -273,36 +317,49 @@ const submit = () => {
                                     <p v-if="form.errors.driver_id" class="text-red-500 text-xs mt-1">{{ form.errors.driver_id }}</p>
                                 </div>
 
-                                <div class="relative">
+                                <div class="relative search-container">
                                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination Location</label>
-                                    <input 
-                                        :value="form.destination_address"
-                                        @input="onAddressInput"
-                                        type="text" 
-                                        placeholder="Type an address or drop a pin on the map..." 
-                                        autocomplete="off"
-                                        class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
-                                    >
+                                    <div class="relative flex items-center">
+                                        <input 
+                                            :value="form.destination_address"
+                                            @input="onAddressInput"
+                                            type="text" 
+                                            placeholder="Type an address or drop a pin on the map..." 
+                                            autocomplete="off"
+                                            class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white pl-10 pr-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
+                                        >
+                                        <svg class="w-4 h-4 text-gray-400 absolute left-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                    </div>
                                     <p v-if="form.errors.destination_address" class="text-red-500 text-xs mt-1">{{ form.errors.destination_address }}</p>
 
-                                    <!-- Geocoding Autocomplete Dropdown -->
-                                    <div v-if="searchResults.length > 0" class="absolute left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+                                    <div v-if="searchResults.length > 0" class="absolute left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden max-h-60 overflow-y-auto">
                                         <ul class="py-1 text-sm text-gray-700 dark:text-gray-300 divide-y divide-gray-100 dark:divide-slate-700">
-                                            <li v-for="result in searchResults" :key="result.place_id" 
+                                            <li v-for="result in searchResults" :key="result.id" 
                                                 @click="selectResult(result)"
-                                                class="px-4 py-3 hover:bg-emerald-50 dark:hover:bg-slate-700 cursor-pointer transition truncate"
+                                                class="px-4 py-3 hover:bg-emerald-50 dark:hover:bg-slate-700 cursor-pointer transition flex items-start gap-2"
                                             >
-                                                {{ result.display_name }}
+                                                <svg class="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                                <div>
+                                                    <span class="block text-gray-900 dark:text-white font-medium">{{ result.display_name.split(',')[0] }}</span>
+                                                    <span class="block text-xs text-gray-500 truncate">{{ result.display_name }}</span>
+                                                </div>
                                             </li>
                                         </ul>
                                     </div>
                                     <div v-if="isSearching" class="absolute left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-gray-200 dark:border-slate-700 p-3 text-center text-sm text-gray-500">
-                                        <span class="animate-pulse">Searching Map Database...</span>
+                                        <div class="flex items-center justify-center gap-2">
+                                            <svg class="animate-spin h-4 w-4 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                            <span>Searching Location...</span>
+                                        </div>
                                     </div>
                                 </div>
 
                                 <div>
                                     <div id="modal-map" class="h-[280px] w-full rounded-xl border border-gray-300 dark:border-slate-600 z-0 overflow-hidden ring-1 ring-black/5 shadow-inner"></div>
+                                    <p class="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                                        <svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        Tip: You can manually click on the map to adjust the exact delivery pin.
+                                    </p>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-4">
