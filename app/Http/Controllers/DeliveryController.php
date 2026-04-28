@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Delivery;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 
 class DeliveryController extends Controller
 {
@@ -88,6 +90,40 @@ class DeliveryController extends Controller
     }
 
     /**
+     * Display the specific delivery details.
+     */
+    public function show(Delivery $delivery)
+    {
+        $delivery->load(['driver', 'trackingLogs', 'attendances' => function ($query) {
+            $query->latest();
+        }]);
+
+        // Calculate distance via tracking logs
+        $distance = 0;
+        $logs = $delivery->trackingLogs()->orderBy('created_at', 'asc')->get();
+        if ($logs->count() > 1) {
+            for ($i = 0; $i < $logs->count() - 1; $i++) {
+                $distance += $this->haversineDistance(
+                    (float)$logs[$i]->latitude, (float)$logs[$i]->longitude,
+                    (float)$logs[$i+1]->latitude, (float)$logs[$i+1]->longitude
+                );
+            }
+        }
+
+        // Calculate duration
+        $duration = null;
+        if ($delivery->started_at && $delivery->completed_at) {
+            $duration = $delivery->started_at->diffForHumans($delivery->completed_at, true, false, 3);
+        }
+
+        return response()->json([
+            'delivery' => $delivery,
+            'distance' => round($distance, 2), // km
+            'duration' => $duration
+        ]);
+    }
+
+    /**
      * Update delivery status.
      */
     public function updateStatus(Request $request, Delivery $delivery)
@@ -102,8 +138,38 @@ class DeliveryController extends Controller
             'status' => 'required|in:pending,on_way,completed',
         ]);
 
-        $delivery->update(['status' => $validated['status']]);
+        $updateData = ['status' => $validated['status']];
+
+        if ($validated['status'] === 'on_way' && !$delivery->started_at) {
+            $updateData['started_at'] = now();
+        } elseif ($validated['status'] === 'completed') {
+            // Ensure PoD exists before completion
+            $hasPod = $delivery->attendances()->where('type', 'proof_of_delivery')->exists();
+            if (!$hasPod) {
+                return response()->json([
+                    'message' => 'Cannot complete delivery without a valid Proof of Delivery (PoD).'
+                ], 403);
+            }
+            $updateData['completed_at'] = now();
+        }
+
+        $delivery->update($updateData);
 
         return response()->json($delivery);
+    }
+
+    /**
+     * Haversine distance formula to calculate distance between two points on Earth.
+     */
+    private function haversineDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        $earthRadius = 6371; // km
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+        $a = sin($dLat / 2) * sin($dLat / 2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLon / 2) * sin($dLon / 2);
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return $earthRadius * $c;
     }
 }

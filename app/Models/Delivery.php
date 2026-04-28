@@ -20,6 +20,8 @@ class Delivery extends Model
         'destination_lat',
         'destination_lng',
         'status',
+        'started_at',
+        'completed_at',
     ];
 
     /**
@@ -32,6 +34,8 @@ class Delivery extends Model
         return [
             'destination_lat' => 'decimal:8',
             'destination_lng' => 'decimal:8',
+            'started_at'      => 'datetime',
+            'completed_at'    => 'datetime',
         ];
     }
 

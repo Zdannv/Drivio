@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Attendance;
 use App\Models\TrackingLog;
+use App\Models\Delivery;
 use App\Models\User;
 use App\Services\FaceRecognizeService;
 use Illuminate\Http\Request;
@@ -90,6 +91,24 @@ class AttendanceController extends Controller
              ], 400);
         }
 
+        // 5km Radius Check for Proof of Delivery
+        if ($request->type === 'proof_of_delivery' && $request->delivery_id) {
+            $delivery = Delivery::find($request->delivery_id);
+            if ($delivery) {
+                $distanceToTarget = $this->haversineDistance(
+                    (float)$request->latitude, (float)$request->longitude,
+                    (float)$delivery->destination_lat, (float)$delivery->destination_lng
+                );
+
+                if ($distanceToTarget > 5) { // 5km limit
+                    return response()->json([
+                        'status'  => 'error',
+                        'message' => 'Distance mismatch! You are ' . round($distanceToTarget, 2) . 'km away from the destination. Access denied for PoD verification.'
+                    ], 403);
+                }
+            }
+        }
+
         $isMatch = $verificationResult['is_match'];
         $similarityScore = $verificationResult['similarity_score'];
 
@@ -137,6 +156,21 @@ class AttendanceController extends Controller
         return response()->json(['message' => 'Export not yet implemented.'], 501);
     }
 
+
+    /**
+     * Haversine distance formula to calculate distance between two points on Earth.
+     */
+    private function haversineDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        $earthRadius = 6371; // km
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+        $a = sin($dLat / 2) * sin($dLat / 2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLon / 2) * sin($dLon / 2);
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return $earthRadius * $c;
+    }
 
     /**
      * Reverse geocode a coordinate pair to a human-readable address.
