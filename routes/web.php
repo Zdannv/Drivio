@@ -32,6 +32,8 @@ Route::get('/recognize', function () {
 
 Route::middleware('auth')->group(function () {
     Route::post('/attendance/store', [AttendanceController::class, 'store'])->name('attendance.store');
+    Route::post('/attendance/test', [AttendanceController::class, 'testFace'])->name('attendance.test');
+    Route::post('/attendance/reset-test', [AttendanceController::class, 'resetTestData'])->name('attendance.reset-test');
     
     Route::get('/deliveries', [DeliveryController::class, 'index'])->name('deliveries.index');
     Route::get('/deliveries/{delivery}', [DeliveryController::class, 'show'])->name('deliveries.show');
@@ -39,6 +41,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/deliveries/{delivery}/status', [DeliveryController::class, 'updateStatus'])->name('deliveries.updateStatus');
     
     Route::get('/admin/deliveries', [DeliveryController::class, 'adminIndex'])->name('admin.deliveries.index');
+
+    Route::post('/tracking/store', [TrackingController::class, 'store'])->name('tracking.store');
 
     Route::get('/profile', [ProfileController::class, 'Index'])->name('profile.Index');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

@@ -126,7 +126,7 @@ onMounted(() => {
     </div>
 
     <footer class="relative z-20 w-full text-sm text-dark dark:text-white text-center">
-      <p>© {{ new Date().getFullYear() }} PT. KND Indonesia</p>
+      <p>© {{ new Date().getFullYear() }} By Zaidan</p>
     </footer>
   </div>
 </template>

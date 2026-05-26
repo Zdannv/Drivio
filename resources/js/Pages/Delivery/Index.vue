@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, onUnmounted } from 'vue';
+import { ref, nextTick, onUnmounted, computed } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Pagination from '@/Components/Pagination.vue';
@@ -13,6 +13,9 @@ defineProps({
     drivers: Array,
 });
 
+// Tab state for filtering deliveries
+const activeTab = ref('active'); // 'active' or 'completed'
+
 const showModal = ref(false);
 
 const form = useForm({
@@ -20,6 +23,7 @@ const form = useForm({
     destination_address: '',
     destination_lat: '',
     destination_lng: '',
+    items: '',
 });
 
 // Detail Modal State
@@ -35,7 +39,11 @@ const searchResults = ref([]);
 const isSearching = ref(false);
 let searchTimeout = null;
 
-// Custom Map Marker Icon
+// Driver tracking on map
+const driverMarkers = ref({});
+let trackingPollInterval = null;
+
+// Custom Map Marker Icon for destination
 const createIcon = () => {
     return L.divIcon({
         className: 'custom-div-icon',
@@ -44,6 +52,33 @@ const createIcon = () => {
         iconAnchor: [12, 12]
     });
 };
+
+// Driver tracking icons (green for free, orange for busy)
+const createFreeIcon = () => L.divIcon({
+    className: 'custom-leaflet-icon',
+    html: `<div style="background-color: #10b981; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 6px rgba(0,0,0,0.5); animation: pulse 2s infinite;"></div>
+           <style>
+           @keyframes pulse {
+               0%, 100% { transform: scale(1); opacity: 1; }
+               50% { transform: scale(1.1); opacity: 0.8; }
+           }
+           </style>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
+});
+
+const createBusyIcon = () => L.divIcon({
+    className: 'custom-leaflet-icon',
+    html: `<div style="background-color: #f97316; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 6px rgba(0,0,0,0.5); animation: pulse 2s infinite;"></div>
+           <style>
+           @keyframes pulse {
+               0%, 100% { transform: scale(1); opacity: 1; }
+               50% { transform: scale(1.1); opacity: 0.8; }
+           }
+           </style>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
+});
 
 const initMap = async () => {
     await nextTick(); 
@@ -102,6 +137,68 @@ const initMap = async () => {
     setTimeout(() => {
         map.invalidateSize();
     }, 200);
+    
+    // Fetch and display driver tracking
+    await fetchDriverTracking();
+    trackingPollInterval = setInterval(fetchDriverTracking, 10000);
+};
+
+const fetchDriverTracking = async () => {
+    try {
+        const response = await axios.get('/tracking/latest');
+        const drivers = response.data;
+        
+        drivers.forEach(d => {
+            if (d.tracking_logs && d.tracking_logs.length > 0) {
+                const log = d.tracking_logs[0];
+                const latLng = [log.latitude, log.longitude];
+                
+                // Check if driver has active delivery (busy) or not (free)
+                const isBusy = d.active_deliveries_count > 0;
+                const icon = isBusy ? createBusyIcon() : createFreeIcon();
+                
+                // Create popup content based on driver status
+                let popupContent = `<div style="min-width: 200px;">
+                    <strong class="text-gray-800" style="font-size: 14px;">${d.name}</strong><br>`;
+                
+                if (isBusy) {
+                    // Busy driver - orange badge
+                    popupContent += `<span class="text-xs font-semibold px-2 py-1 bg-orange-100 text-orange-700 rounded-full mt-1 inline-block">🚚 ON DELIVERY</span>`;
+                    
+                    // Show active delivery count
+                    popupContent += `<div style="margin-top: 8px; padding: 8px; background-color: #fff7ed; border-left: 3px solid #f97316; border-radius: 4px;">
+                        <p style="font-size: 11px; color: #9a3412; margin: 0;">
+                            📦 Active deliveries: <strong>${d.active_deliveries_count}</strong>
+                        </p>
+                    </div>`;
+                } else {
+                    // Free driver - green badge
+                    popupContent += `<span class="text-xs font-semibold px-2 py-1 bg-green-100 text-green-700 rounded-full mt-1 inline-block">✓ AVAILABLE</span>`;
+                    
+                    popupContent += `<div style="margin-top: 8px; font-size: 11px; color: #6b7280;">
+                        <p style="margin: 0;">Ready to accept new delivery</p>
+                    </div>`;
+                }
+                
+                popupContent += `</div>`;
+                
+                if (driverMarkers.value[d.id]) {
+                    // Marker exists, update position and icon
+                    driverMarkers.value[d.id].setLatLng(latLng);
+                    driverMarkers.value[d.id].setIcon(icon);
+                    driverMarkers.value[d.id].setPopupContent(popupContent);
+                } else {
+                    // Create new marker
+                    const driverMarker = L.marker(latLng, { icon: icon })
+                        .bindPopup(popupContent)
+                        .addTo(map);
+                    driverMarkers.value[d.id] = driverMarker;
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching driver tracking data:', error);
+    }
 };
 
 // Modified updateMarker to handle smooth flying
@@ -194,6 +291,17 @@ const closeModal = () => {
     form.reset();
     form.clearErrors();
     searchResults.value = [];
+    
+    // Clear tracking interval
+    if (trackingPollInterval) {
+        clearInterval(trackingPollInterval);
+        trackingPollInterval = null;
+    }
+    
+    // Clear driver markers
+    Object.values(driverMarkers.value).forEach(marker => marker.remove());
+    driverMarkers.value = {};
+    
     if (map) {
         map.remove();
         map = null;
@@ -324,7 +432,7 @@ const getTimelineStatus = (delivery) => {
         <div class="py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
             <div class="sm:flex sm:items-center">
                 <div class="sm:flex-auto">
-                    <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Active Deliveries</h1>
+                    <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Deliveries</h1>
                     <p class="mt-2 text-sm text-gray-700 dark:text-gray-400">A complete list of all logistical deliveries across the system.</p>
                 </div>
                 <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
@@ -336,6 +444,46 @@ const getTimelineStatus = (delivery) => {
                         Create Delivery Task
                     </button>
                 </div>
+            </div>
+
+            <!-- Tabs for Active / Completed -->
+            <div class="mt-6 border-b border-gray-200 dark:border-slate-700">
+                <nav class="-mb-px flex space-x-8">
+                    <button
+                        @click="activeTab = 'active'"
+                        :class="[
+                            activeTab === 'active'
+                                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+                            'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition'
+                        ]"
+                    >
+                        Active Deliveries
+                        <span :class="[
+                            activeTab === 'active' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-400',
+                            'ml-2 py-0.5 px-2.5 rounded-full text-xs font-medium'
+                        ]">
+                            {{ deliveries.data.filter(d => d.status !== 'completed').length }}
+                        </span>
+                    </button>
+                    <button
+                        @click="activeTab = 'completed'"
+                        :class="[
+                            activeTab === 'completed'
+                                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+                            'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition'
+                        ]"
+                    >
+                        Completed
+                        <span :class="[
+                            activeTab === 'completed' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-400',
+                            'ml-2 py-0.5 px-2.5 rounded-full text-xs font-medium'
+                        ]">
+                            {{ deliveries.data.filter(d => d.status === 'completed').length }}
+                        </span>
+                    </button>
+                </nav>
             </div>
 
             <div class="mt-8 flow-root">
@@ -358,7 +506,7 @@ const getTimelineStatus = (delivery) => {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 dark:divide-slate-700">
-                                    <tr v-for="delivery in deliveries.data" :key="delivery.id">
+                                    <tr v-for="delivery in deliveries.data.filter(d => activeTab === 'active' ? d.status !== 'completed' : d.status === 'completed')" :key="delivery.id">
                                         <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-white sm:pl-6">#{{ delivery.id }}</td>
                                         <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{{ moment(delivery.created_at).format('DD MMM YYYY, HH:mm') }}</td>
                                         <td class="whitespace-nowrap px-3 py-4 text-sm font-medium text-indigo-600 dark:text-indigo-400">{{ delivery.driver?.name || 'Unassigned' }}</td>
@@ -398,8 +546,15 @@ const getTimelineStatus = (delivery) => {
                                             </button>
                                         </td>
                                     </tr>
-                                    <tr v-if="deliveries.data.length === 0">
-                                        <td colspan="8" class="text-center py-8 text-gray-500 dark:text-gray-400">No deliveries created yet.</td>
+                                    <tr v-if="deliveries.data.filter(d => activeTab === 'active' ? d.status !== 'completed' : d.status === 'completed').length === 0">
+                                        <td colspan="8" class="text-center py-8 text-gray-500 dark:text-gray-400">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <svg class="w-12 h-12 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                                                </svg>
+                                                <p>No {{ activeTab === 'active' ? 'active' : 'completed' }} deliveries yet.</p>
+                                            </div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -430,11 +585,22 @@ const getTimelineStatus = (delivery) => {
                                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assign Driver</label>
                                     <select v-model="form.driver_id" class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition">
                                         <option value="" disabled>Select a driver...</option>
-                                        <option v-for="driver in drivers" :key="driver.id" :value="driver.id">
+                                        <option v-for="driver in drivers" :key="driver.id" :value="driver.id" :disabled="!driver.is_online">
                                             {{ driver.name }} {{ driver.is_online ? '(🟢 Online)' : '(⚪ Offline)' }}
                                         </option>
                                     </select>
                                     <p v-if="form.errors.driver_id" class="text-red-500 text-xs mt-1">{{ form.errors.driver_id }}</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Items / Package Description</label>
+                                    <textarea
+                                        v-model="form.items"
+                                        rows="3"
+                                        placeholder="e.g., 2x Laptop Dell, 1x Monitor 24 inch, 5x Office Chairs..."
+                                        class="block w-full rounded-lg border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition resize-none"
+                                    ></textarea>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Optional: Describe what items will be delivered</p>
+                                    <p v-if="form.errors.items" class="text-red-500 text-xs mt-1">{{ form.errors.items }}</p>
                                 </div>
                                 <div class="relative search-container">
                                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination Location</label>
@@ -572,10 +738,42 @@ const getTimelineStatus = (delivery) => {
                                         <div class="relative group">
                                             <img :src="'/storage/' + detailData.delivery.attendances.find(a => a.type === 'proof_of_delivery').photo_path" 
                                                  class="w-full aspect-[4/3] object-cover rounded-xl shadow-lg border-2 border-white dark:border-slate-800 ring-1 ring-gray-200 dark:ring-slate-700">
-                                            <div class="absolute bottom-2 right-2 flex gap-1">
-                                                <span class="bg-emerald-500/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-white uppercase shadow-sm">
-                                                    Match: {{ (detailData.delivery.attendances.find(a => a.type === 'proof_of_delivery').face_similarity_score * 100).toFixed(1) }}%
+                                        </div>
+                                        
+                                        <!-- Face Recognition Accuracy Display -->
+                                        <div class="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800 space-y-3">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-xs font-bold text-emerald-800 dark:text-emerald-400">Face Recognition Match</span>
+                                                <span class="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                                                    {{ (detailData.delivery.attendances.find(a => a.type === 'proof_of_delivery').face_similarity_score * 100).toFixed(1) }}%
                                                 </span>
+                                            </div>
+                                            
+                                            <!-- Progress Bar -->
+                                            <div class="w-full bg-emerald-200 dark:bg-emerald-900/40 rounded-full h-2 overflow-hidden">
+                                                <div class="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                                                     :style="{ width: (detailData.delivery.attendances.find(a => a.type === 'proof_of_delivery').face_similarity_score * 100) + '%' }">
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Validation Status -->
+                                            <div class="flex items-center gap-2">
+                                                <svg class="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <span class="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                                    {{ detailData.delivery.attendances.find(a => a.type === 'proof_of_delivery').validation_status === 'valid' ? 'Verified' : 'Unverified' }}
+                                                </span>
+                                            </div>
+                                            
+                                            <!-- Research Note -->
+                                            <div class="pt-2 border-t border-emerald-200 dark:border-emerald-800">
+                                                <p class="text-[10px] text-emerald-700 dark:text-emerald-400 flex items-start gap-1.5">
+                                                    <svg class="w-3 h-3 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <span><strong>Research:</strong> Accuracy metric for evaluation purposes</span>
+                                                </p>
                                             </div>
                                         </div>
                                     </div>

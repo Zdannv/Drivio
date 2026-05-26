@@ -13,46 +13,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Admin user
-        User::factory()->create([
-            'name'     => 'Admin KNDI',
-            'email'    => 'admin@kyodo-i.com',
-            'role'     => 'admin',
-            'avatar'   => '/avatars/1.png',
-            'password' => Hash::make('password'),
-        ]);
-
-        // Driver users
-        User::factory()->create([
-            'name'     => 'Farkhan',
-            'email'    => 'farkhan@kyodo-i.com',
-            'role'     => 'driver',
-            'avatar'   => '/avatars/1.png',
-            'password' => Hash::make('password'),
-        ]);
-
-        User::factory()->create([
-            'name'     => 'Wawan',
-            'email'    => 'wawan@kyodo-i.com',
-            'role'     => 'driver',
-            'avatar'   => '/avatars/1.png',
-            'password' => Hash::make('password'),
-        ]);
-
-        User::factory()->create([
-            'name'     => 'Trisno',
-            'email'    => 'trisno@kyodo-i.com',
-            'role'     => 'driver',
-            'avatar'   => '/avatars/1.png',
-            'password' => Hash::make('password'),
-        ]);
-
-        User::factory()->create([
-            'name'     => 'Aries',
-            'email'    => 'aries@kyodo-i.com',
-            'role'     => 'driver',
-            'avatar'   => '/avatars/1.png',
-            'password' => Hash::make('password'),
+        // Call the Building Material Store Seeder for realistic mock data
+        $this->call([
+            BuildingMaterialStoreSeeder::class,
         ]);
     }
 }

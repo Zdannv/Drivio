@@ -170,7 +170,7 @@ const getInitials = (name) => {
                         <Hamburger :show="openMenus" />
                     </button>
                     <img src="/icon_kndi.svg" alt="Logo" class="w-8 h-8 drop-shadow-md" />
-                    <span class="font-bold text-lg text-gray-800 dark:text-white tracking-tight">KNDI Task</span>
+                    <span class="font-bold text-lg text-gray-800 dark:text-white tracking-tight">Drivio Magament</span>
                 </div>
                 <button @click="showProfilePanel = true" class="relative">
                      <div v-if="user.avatar" class="w-8 h-8 rounded-none overflow-hidden border border-white/50 shadow-sm bg-gray-50 dark:bg-slate-800">
@@ -205,7 +205,7 @@ const getInitials = (name) => {
                     <div class="bg-white/10 p-1.5 rounded-none shadow-lg border border-white/10">
                         <img src="/icon_kndi.svg" alt="Logo" class="w-6 h-6 shrink-0" />
                     </div>
-                    <span class="text-white font-bold text-2xl tracking-wide">KNDI</span>
+                    <span class="text-white font-bold text-2xl tracking-wide">Drivio</span>
                 </div>
                 
                 <button 

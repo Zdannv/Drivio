@@ -274,6 +274,8 @@ const resetFilter = () => {
                     <tr>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Date / Time</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Employee</th>
+                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Status</th>
+                        <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Face Match</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider">Location</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Action Time</th>
                         <th class="p-5 font-semibold text-gray-600 dark:text-slate-400 text-sm uppercase tracking-wider text-center">Proof Photo</th>
@@ -283,7 +285,7 @@ const resetFilter = () => {
                     
                         <template v-for="(group, date) in groupedAttendances" :key="date">
                             <tr class="bg-primary-50/50 dark:bg-primary-500/10 backdrop-blur-sm border-t border-white/20 dark:border-white/10">
-                                <td class="py-3 px-5" colspan="4">
+                                <td class="py-3 px-5" colspan="6">
                                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-primary-100/50 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 text-xs font-bold border border-primary-200/50 dark:border-primary-500/30">
                                         {{ date }}
                                     </span>
@@ -301,7 +303,8 @@ const resetFilter = () => {
                                 </td>
                                 <td class="p-5">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 rounded-full bg-white/60 dark:bg-slate-800/50 flex items-center justify-center text-xs font-bold text-primary-600 dark:text-primary-400 border border-primary-100/50 dark:border-slate-700/50 shadow-sm backdrop-blur-sm">
+                                        <img v-if="item.user?.avatar" :src="item.user.avatar" :alt="item.user.name" class="w-8 h-8 rounded-full object-cover border-2 border-white dark:border-slate-600 shadow-sm">
+                                        <div v-else class="w-8 h-8 rounded-full bg-white/60 dark:bg-slate-800/50 flex items-center justify-center text-xs font-bold text-primary-600 dark:text-primary-400 border border-primary-100/50 dark:border-slate-700/50 shadow-sm backdrop-blur-sm">
                                             {{ item.user?.name ? item.user.name.charAt(0).toUpperCase() : 'U' }}
                                         </div>
                                         <div>
@@ -311,6 +314,40 @@ const resetFilter = () => {
                                             <div class="text-xs text-gray-500 dark:text-slate-400">{{ item.user?.email }}</div>
                                         </div>
                                     </div>
+                                </td>
+
+                                <td class="p-5 text-center">
+                                    <span v-if="item.type === 'check_in'" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-bold border border-emerald-200 dark:border-emerald-800 shadow-sm">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
+                                        Check In
+                                    </span>
+                                    <span v-else-if="item.type === 'check_out'" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-xs font-bold border border-red-200 dark:border-red-800 shadow-sm">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                                        Check Out
+                                    </span>
+                                    <span v-else class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-xs font-bold border border-blue-200 dark:border-blue-800 shadow-sm">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        {{ item.type.replace('_', ' ').toUpperCase() }}
+                                    </span>
+                                </td>
+
+                                <td class="p-5 text-center">
+                                    <div v-if="item.face_similarity_score !== null" class="flex flex-col items-center gap-1">
+                                        <span class="font-bold text-sm"
+                                              :class="item.face_similarity_score >= 0.7 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+                                            {{ (item.face_similarity_score * 100).toFixed(1) }}%
+                                        </span>
+                                        <div class="w-20 bg-gray-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                                            <div class="h-full rounded-full transition-all"
+                                                 :class="item.face_similarity_score >= 0.7 ? 'bg-emerald-500' : 'bg-rose-500'"
+                                                 :style="{ width: (item.face_similarity_score * 100) + '%' }">
+                                            </div>
+                                        </div>
+                                        <span class="text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                                            {{ item.validation_status === 'valid' ? 'Valid' : 'Invalid' }}
+                                        </span>
+                                    </div>
+                                    <span v-else class="text-gray-400 dark:text-gray-500 text-xs italic">N/A</span>
                                 </td>
                                 
                                 <td class="p-5">
@@ -336,7 +373,7 @@ const resetFilter = () => {
                         </template>
 
                         <tr v-if="Object.keys(groupedAttendances).length === 0">
-                            <td colspan="5" class="p-12 text-center text-gray-400 dark:text-gray-500 italic">No attendance records found for this period.</td>
+                            <td colspan="7" class="p-12 text-center text-gray-400 dark:text-gray-500 italic">No attendance records found for this period.</td>
                         </tr>
                     </tbody>
                 </table>

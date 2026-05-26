@@ -19,6 +19,7 @@ class Delivery extends Model
         'destination_address',
         'destination_lat',
         'destination_lng',
+        'items',
         'status',
         'started_at',
         'completed_at',

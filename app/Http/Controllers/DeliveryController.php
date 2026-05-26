@@ -80,6 +80,7 @@ class DeliveryController extends Controller
             'destination_address' => 'required|string',
             'destination_lat'     => 'required|numeric',
             'destination_lng'     => 'required|numeric',
+            'items'               => 'nullable|string|max:1000',
         ]);
 
         $validated['status'] = 'pending';

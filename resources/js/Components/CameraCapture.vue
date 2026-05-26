@@ -7,7 +7,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
           </svg>
-          Verification Camera
+          {{ title }}
         </h3>
         <button 
           @click="$emit('close')" 
@@ -65,6 +65,17 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
 const emit = defineEmits(['capture', 'close']);
+
+const props = defineProps({
+    skipGps: {
+        type: Boolean,
+        default: false,
+    },
+    title: {
+        type: String,
+        default: 'Verification Camera',
+    },
+});
 
 const videoEl = ref(null);
 const canvasEl = ref(null);
@@ -136,15 +147,18 @@ const captureAndSubmit = async () => {
     if (!videoEl.value || !canvasEl.value) return;
 
     isLoading.value = true;
-    loadingMessage.value = 'Acquiring GPS location...';
 
     let locationData = { latitude: null, longitude: null };
-    try {
-        locationData = await getLocation();
-    } catch (err) {
-        alert(err || 'Failed to get location. Ensure GPS is enabled.');
-        isLoading.value = false;
-        return;
+
+    if (!props.skipGps) {
+        loadingMessage.value = 'Acquiring GPS location...';
+        try {
+            locationData = await getLocation();
+        } catch (err) {
+            alert(err || 'Failed to get location. Ensure GPS is enabled.');
+            isLoading.value = false;
+            return;
+        }
     }
 
     loadingMessage.value = 'Processing image...';

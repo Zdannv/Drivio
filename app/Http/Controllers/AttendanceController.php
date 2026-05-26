@@ -156,6 +156,106 @@ class AttendanceController extends Controller
         return response()->json(['message' => 'Export not yet implemented.'], 501);
     }
 
+    /**
+     * Test face recognition without persisting any data.
+     * Used for research/evaluation: capture & verify, but do NOT create
+     * attendance or tracking records.
+     */
+    public function testFace(Request $request)
+    {
+        $request->validate([
+            'image' => 'required|string',
+        ]);
+
+        $user = auth()->user();
+        $faceService = app(\App\Services\FaceRecognizeService::class);
+
+        // Strip data URI prefix if present
+        $imageBase64 = $request->image;
+        if (strpos($imageBase64, ',') !== false) {
+            @list(, $imageBase64) = explode(',', $imageBase64);
+        }
+
+        $imageBytes = base64_decode($imageBase64);
+        if (!$imageBytes) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Invalid image encoding.',
+            ], 400);
+        }
+
+        try {
+            $verificationResult = $faceService->verifyFace($user, $imageBase64);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+
+        if (!$verificationResult['success']) {
+            return response()->json([
+                'status'           => 'error',
+                'message'          => $verificationResult['message'] ?? 'Face verification failed',
+                'similarity_score' => $verificationResult['similarity_score'] ?? 0,
+            ], 200);
+        }
+
+        return response()->json([
+            'status'           => 'success',
+            'message'          => 'Test verification completed. No data saved.',
+            'is_match'         => $verificationResult['is_match'],
+            'similarity_score' => $verificationResult['similarity_score'],
+        ], 200);
+    }
+
+    /**
+     * Reset test data for the currently authenticated driver.
+     * Deletes all attendance and tracking_logs records belonging to the user.
+     * Intended for research/testing — do NOT expose to admin role for production.
+     */
+    public function resetTestData(Request $request)
+    {
+        $user = auth()->user();
+
+        // Only drivers can reset their own data
+        if ($user->role !== 'driver') {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Only drivers can reset their test data.',
+            ], 403);
+        }
+
+        try {
+            // Collect photo paths to delete from storage
+            $photoPaths = Attendance::where('user_id', $user->id)
+                ->whereNotNull('photo_path')
+                ->pluck('photo_path');
+
+            foreach ($photoPaths as $path) {
+                if (Storage::disk('public')->exists($path)) {
+                    Storage::disk('public')->delete($path);
+                }
+            }
+
+            $attendanceCount = Attendance::where('user_id', $user->id)->delete();
+            $trackingCount = TrackingLog::where('driver_id', $user->id)->delete();
+
+            return response()->json([
+                'status'           => 'success',
+                'message'          => "Reset complete. Deleted {$attendanceCount} attendance records and {$trackingCount} tracking logs.",
+                'attendance_count' => $attendanceCount,
+                'tracking_count'   => $trackingCount,
+            ], 200);
+        } catch (\Exception $e) {
+            \Log::error('Reset test data error: ' . $e->getMessage());
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to reset test data: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
 
     /**
      * Haversine distance formula to calculate distance between two points on Earth.

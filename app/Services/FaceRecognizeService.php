@@ -74,31 +74,71 @@ class FaceRecognizeService
 
         $referenceImageBase64 = base64_encode($referenceImageBytes);
 
-        try {
-            $response = Http::post("http://{$this->host}:{$this->port}/api/verify", [
-                'reference_image_base64' => $referenceImageBase64,
-                'live_image_base64'      => $liveImageBase64,
-            ]);
+        // Retry up to 2 times for transient connection issues
+        $maxAttempts = 2;
+        $lastError = null;
 
-            if ($response->successful()) {
-                $data = $response->json();
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $response = Http::timeout(60)
+                    ->connectTimeout(10)
+                    ->post("http://{$this->host}:{$this->port}/api/verify", [
+                        'reference_image_base64' => $referenceImageBase64,
+                        'live_image_base64'      => $liveImageBase64,
+                    ]);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    return [
+                        'success'          => true,
+                        'similarity_score' => $data['similarity_score'] ?? 0.0,
+                        'is_match'         => $data['is_match'] ?? false,
+                    ];
+                }
+
+                // Got a response but not successful (4xx/5xx) — return immediately, no retry
+                $detail = $response->json('detail');
+                $statusCode = $response->status();
+                
+                Log::warning("Face verify failed (HTTP {$statusCode}): " . ($detail ?? 'No detail'));
+
+                // Provide friendly messages for common cases
+                $message = $detail ?? 'An error occurred during verification.';
+                if (stripos($message, 'No face detected in live image') !== false) {
+                    $message = 'No face detected in your photo. Please ensure your face is clearly visible and well-lit, then try again.';
+                } elseif (stripos($message, 'No face detected in reference') !== false) {
+                    $message = 'Reference photo issue. Please contact admin to update your profile photo.';
+                } elseif (stripos($message, 'Invalid base64') !== false) {
+                    $message = 'Invalid image data. Please try capturing again.';
+                }
+
                 return [
-                    'success'          => true,
-                    'similarity_score' => $data['similarity_score'] ?? 0.0,
-                    'is_match'         => $data['is_match'] ?? false,
+                    'success' => false,
+                    'message' => $message,
+                ];
+            } catch (\Illuminate\Http\Client\ConnectionException $err) {
+                $lastError = $err;
+                Log::warning("Face verify connection attempt {$attempt}/{$maxAttempts} failed: " . $err->getMessage());
+
+                if ($attempt < $maxAttempts) {
+                    // Wait briefly before retrying
+                    sleep(1);
+                    continue;
+                }
+            } catch (\Exception $err) {
+                Log::error("Face verify error: " . $err->getMessage());
+                return [
+                    'success' => false,
+                    'message' => 'Verification service error: ' . $err->getMessage(),
                 ];
             }
-
-            return [
-                'success' => false,
-                'message' => $response->json('detail') ?? 'An error occurred during verification.'
-            ];
-        } catch (\Exception $err) {
-            Log::error("Face verify error: " . $err->getMessage());
-            return [
-                'success' => false,
-                'message' => 'Connection to face recognition service failed.'
-            ];
         }
+
+        // All retries exhausted
+        Log::error("Face verify failed after {$maxAttempts} attempts: " . ($lastError ? $lastError->getMessage() : 'unknown'));
+        return [
+            'success' => false,
+            'message' => 'Face recognition service is unreachable. The service may be starting up — please wait a moment and try again.',
+        ];
     }
 }

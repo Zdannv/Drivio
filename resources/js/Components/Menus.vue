@@ -22,7 +22,7 @@ const userRole = computed(() => page.props.auth.user.role);
 
 const rawMenuItems = computed(() => [
     { label: "Dashboard", route: "dashboard", icon: News, show: true, pattern: "dashboard" },
-    { label: "Active Deliveries", route: "admin.deliveries.index", icon: Document, show: userRole.value === 'admin', pattern: "admin.deliveries.index" },
+    { label: "Deliveries", route: "admin.deliveries.index", icon: Document, show: userRole.value === 'admin', pattern: "admin.deliveries.index" },
     { label: "Driver Data", route: "user.list", icon: User, show: userRole.value === 'admin', pattern: "user.list" },
     { label: "Attendance Log", route: "attendance", icon: Folder, show: userRole.value === 'admin', pattern: "attendance" },
     { label: "Settings", route: "profile.Index", icon: Build, show: userRole.value === 'admin', pattern: "profile.Index" },
