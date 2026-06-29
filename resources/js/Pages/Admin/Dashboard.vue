@@ -53,7 +53,14 @@ const getStatusBadge = (status) => {
 ----------------------------------- */
 const map = ref(null);
 const markers = ref({});
-let pollInterval = null;
+
+// WebSocket connection state for status indicator
+const wsStatus = ref('connecting'); // 'connecting' | 'connected' | 'disconnected'
+let trackingChannel = null;
+
+// Idle alerts toast queue (drivers that just transitioned to idle)
+const idleAlerts = ref([]);
+const alertTimers = new Map();
 
 // Dynamic icons for active and idle drivers
 const createActiveIcon = () => L.divIcon({
@@ -82,87 +89,196 @@ const createIdleIcon = () => L.divIcon({
     iconAnchor: [10, 10]
 });
 
+/**
+ * Build the popup HTML for a driver based on their idle status and metadata.
+ * Accepts a normalized payload regardless of whether it came from the
+ * initial REST hydration or a websocket event.
+ */
+const buildPopupContent = ({ name, is_idle, idle_distance_meters, minutes_since_last_log }) => {
+    let popupContent = `<div style="min-width: 200px;">
+        <strong class="text-gray-800" style="font-size: 14px;">${name}</strong><br>`;
+
+    if (is_idle) {
+        popupContent += `<span class="text-xs font-semibold px-2 py-1 bg-red-100 text-red-700 rounded-full mt-1 inline-block">🔴 IDLE</span>`;
+
+        if (idle_distance_meters !== null && minutes_since_last_log !== null) {
+            const distance = Number(idle_distance_meters).toFixed(1);
+            const minutes = Math.round(Number(minutes_since_last_log));
+
+            popupContent += `<div style="margin-top: 8px; padding: 8px; background-color: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px;">
+                <p style="font-size: 11px; color: #991b1b; margin: 0;">
+                    ⚠️ Only moved <strong>${distance}m</strong> in the last <strong>${minutes} min</strong>
+                </p>
+            </div>`;
+        }
+    } else {
+        popupContent += `<span class="text-xs font-semibold px-2 py-1 bg-green-100 text-green-700 rounded-full mt-1 inline-block">🟢 ACTIVE</span>`;
+
+        if (idle_distance_meters !== null && minutes_since_last_log !== null) {
+            const distance = Number(idle_distance_meters).toFixed(1);
+            const minutes = Math.round(Number(minutes_since_last_log));
+
+            popupContent += `<div style="margin-top: 8px; font-size: 11px; color: #6b7280;">
+                <p style="margin: 0;">Moved: ${distance}m</p>
+                <p style="margin: 0;">Last update: ${minutes} min ago</p>
+            </div>`;
+        }
+    }
+
+    popupContent += `</div>`;
+    return popupContent;
+};
+
+/**
+ * Reusable upsert that places or moves a marker for a single driver.
+ * Used for both initial REST hydration and live websocket pushes.
+ */
+const upsertDriverMarker = (driverData) => {
+    if (!map.value) return;
+
+    const { driver_id, name, latitude, longitude, is_idle } = driverData;
+    if (latitude == null || longitude == null) return;
+
+    const latLng = [latitude, longitude];
+    const icon = is_idle ? createIdleIcon() : createActiveIcon();
+    const popupContent = buildPopupContent({ name, ...driverData });
+
+    if (markers.value[driver_id]) {
+        markers.value[driver_id].setLatLng(latLng);
+        markers.value[driver_id].setIcon(icon);
+        markers.value[driver_id].setPopupContent(popupContent);
+    } else {
+        const marker = L.marker(latLng, { icon })
+            .bindPopup(popupContent)
+            .addTo(map.value);
+        markers.value[driver_id] = marker;
+    }
+};
+
+/**
+ * Initial REST hydration so the map already has positions when the
+ * websocket connects. After this, updates arrive only via Echo.
+ */
+const hydrateInitialMarkers = async () => {
+    try {
+        const response = await axios.get('/tracking/latest');
+        const drivers = response.data;
+
+        drivers.forEach(d => {
+            if (d.tracking_logs && d.tracking_logs.length > 0) {
+                const log = d.tracking_logs[0];
+                upsertDriverMarker({
+                    driver_id: d.id,
+                    name: d.name,
+                    latitude: parseFloat(log.latitude),
+                    longitude: parseFloat(log.longitude),
+                    is_idle: d.is_idle,
+                    idle_distance_meters: d.idle_distance_meters,
+                    minutes_since_last_log: d.minutes_since_last_log,
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Error hydrating initial tracking data:', error);
+    }
+};
+
+/**
+ * Subscribe to the admin tracking channel and wire up event handlers.
+ * Falls back gracefully if Echo is not available (e.g. Reverb not running).
+ */
+const subscribeToTracking = () => {
+    if (typeof window.Echo === 'undefined') {
+        console.warn('Laravel Echo is not available. Falling back to REST-only mode.');
+        wsStatus.value = 'disconnected';
+        return;
+    }
+
+    trackingChannel = window.Echo.private('admin.tracking');
+
+    trackingChannel.listen('.driver.location.updated', (e) => {
+        upsertDriverMarker({
+            driver_id: e.driver_id,
+            name: e.driver_name,
+            latitude: e.latitude,
+            longitude: e.longitude,
+            is_idle: e.is_idle,
+            idle_distance_meters: e.idle_distance_meters,
+            minutes_since_last_log: e.minutes_since_last_log,
+        });
+    });
+
+    trackingChannel.listen('.driver.idle.detected', (e) => {
+        showIdleAlert({
+            driverId: e.driver_id,
+            driverName: e.driver_name,
+            avatar: e.avatar,
+            idleDistanceMeters: e.idle_distance_meters,
+            minutesSinceLastLog: e.minutes_since_last_log,
+        });
+    });
+
+    // Track raw Pusher connection state for the UI badge
+    const pusher = window.Echo.connector?.pusher;
+    if (pusher) {
+        pusher.connection.bind('connected', () => { wsStatus.value = 'connected'; });
+        pusher.connection.bind('disconnected', () => { wsStatus.value = 'disconnected'; });
+        pusher.connection.bind('error', () => { wsStatus.value = 'disconnected'; });
+        pusher.connection.bind('connecting', () => { wsStatus.value = 'connecting'; });
+        // If already connected (fast path), reflect it immediately
+        if (pusher.connection.state === 'connected') {
+            wsStatus.value = 'connected';
+        }
+    }
+};
+
+/**
+ * Push a new idle alert toast and auto-dismiss after 8 seconds.
+ * Deduplicates by driverId so repeat events don't stack.
+ */
+const showIdleAlert = (alert) => {
+    // Remove any existing alert for this driver so the new one floats to the top
+    idleAlerts.value = idleAlerts.value.filter(a => a.driverId !== alert.driverId);
+
+    const entry = {
+        ...alert,
+        id: `${alert.driverId}-${Date.now()}`,
+    };
+    idleAlerts.value.unshift(entry);
+
+    // Cap to 5 visible toasts
+    if (idleAlerts.value.length > 5) {
+        const removed = idleAlerts.value.pop();
+        const t = alertTimers.get(removed.id);
+        if (t) clearTimeout(t);
+        alertTimers.delete(removed.id);
+    }
+
+    const timer = setTimeout(() => {
+        dismissIdleAlert(entry.id);
+    }, 8000);
+    alertTimers.set(entry.id, timer);
+};
+
+const dismissIdleAlert = (id) => {
+    idleAlerts.value = idleAlerts.value.filter(a => a.id !== id);
+    const t = alertTimers.get(id);
+    if (t) clearTimeout(t);
+    alertTimers.delete(id);
+};
+
 const initializeMapAndStartTracking = async () => {
-    // 1. Init Leaflet
     map.value = L.map('map').setView([-7.2504, 112.7688], 12);
-    
-    // 2. Attach Map Tiles
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map.value);
 
-    // 3. Kick off loop
-    await fetchTracking();
-    pollInterval = setInterval(fetchTracking, 10000);
-};
+    // 1. Seed map with current state
+    await hydrateInitialMarkers();
 
-const fetchTracking = async () => {
-    try {
-        const response = await axios.get('/tracking/latest');
-        const drivers = response.data;
-        
-        drivers.forEach(d => {
-            if (d.tracking_logs && d.tracking_logs.length > 0) {
-                const log = d.tracking_logs[0];
-                const latLng = [log.latitude, log.longitude];
-                
-                // Determine icon based on idle status
-                const icon = d.is_idle ? createIdleIcon() : createActiveIcon();
-                
-                // Create popup content based on idle status
-                let popupContent = `<div style="min-width: 200px;">
-                    <strong class="text-gray-800" style="font-size: 14px;">${d.name}</strong><br>`;
-                
-                if (d.is_idle) {
-                    // Idle driver - red badge with warning
-                    popupContent += `<span class="text-xs font-semibold px-2 py-1 bg-red-100 text-red-700 rounded-full mt-1 inline-block">🔴 IDLE</span>`;
-                    
-                    // Add metadata warning
-                    if (d.idle_distance_meters !== null && d.minutes_since_last_log !== null) {
-                        const distance = d.idle_distance_meters.toFixed(1);
-                        const minutes = Math.round(d.minutes_since_last_log);
-                        
-                        popupContent += `<div style="margin-top: 8px; padding: 8px; background-color: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px;">
-                            <p style="font-size: 11px; color: #991b1b; margin: 0;">
-                                ⚠️ Only moved <strong>${distance}m</strong> in the last <strong>${minutes} min</strong>
-                            </p>
-                        </div>`;
-                    }
-                } else {
-                    // Active driver - green badge
-                    popupContent += `<span class="text-xs font-semibold px-2 py-1 bg-green-100 text-green-700 rounded-full mt-1 inline-block">🟢 ACTIVE</span>`;
-                    
-                    // Show movement info if available
-                    if (d.idle_distance_meters !== null && d.minutes_since_last_log !== null) {
-                        const distance = d.idle_distance_meters.toFixed(1);
-                        const minutes = Math.round(d.minutes_since_last_log);
-                        
-                        popupContent += `<div style="margin-top: 8px; font-size: 11px; color: #6b7280;">
-                            <p style="margin: 0;">Moved: ${distance}m</p>
-                            <p style="margin: 0;">Last update: ${minutes} min ago</p>
-                        </div>`;
-                    }
-                }
-                
-                popupContent += `</div>`;
-                
-                if (markers.value[d.id]) {
-                    // Marker exists, update position and icon
-                    markers.value[d.id].setLatLng(latLng);
-                    markers.value[d.id].setIcon(icon);
-                    markers.value[d.id].setPopupContent(popupContent);
-                } else {
-                    // Create new marker
-                    const marker = L.marker(latLng, { icon: icon })
-                        .bindPopup(popupContent)
-                        .addTo(map.value);
-                    markers.value[d.id] = marker;
-                }
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching tracking overlay data:', error);
-    }
+    // 2. Switch to push updates via WebSockets
+    subscribeToTracking();
 };
 
 onMounted(() => {
@@ -172,7 +288,21 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    if (pollInterval) clearInterval(pollInterval);
+    // Clear any pending toasts
+    alertTimers.forEach(t => clearTimeout(t));
+    alertTimers.clear();
+    idleAlerts.value = [];
+
+    // Tear down websocket subscription
+    if (trackingChannel && typeof window.Echo !== 'undefined') {
+        try {
+            window.Echo.leave('admin.tracking');
+        } catch (err) {
+            console.warn('Failed to leave tracking channel:', err);
+        }
+        trackingChannel = null;
+    }
+
     if (map.value) map.value.remove();
 });
 </script>
@@ -344,7 +474,24 @@ onUnmounted(() => {
                 <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-slate-700">
                     <div class="px-6 py-4 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center bg-gray-50/50 dark:bg-slate-800/50">
                         <h3 class="font-bold text-gray-800 dark:text-white">Live Map Tracking</h3>
-                        <span class="bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-400 py-1 px-3 rounded-full text-xs font-bold">Auto-updates every 10s</span>
+
+                        <!-- WebSocket connection status badge -->
+                        <span class="inline-flex items-center gap-1.5 py-1 px-3 rounded-full text-xs font-bold"
+                              :class="{
+                                  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400': wsStatus === 'connected',
+                                  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400': wsStatus === 'connecting',
+                                  'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400': wsStatus === 'disconnected',
+                              }">
+                            <span class="w-2 h-2 rounded-full"
+                                  :class="{
+                                      'bg-emerald-500 animate-pulse': wsStatus === 'connected',
+                                      'bg-amber-500 animate-pulse': wsStatus === 'connecting',
+                                      'bg-rose-500': wsStatus === 'disconnected',
+                                  }"></span>
+                            <template v-if="wsStatus === 'connected'">Live (WebSocket)</template>
+                            <template v-else-if="wsStatus === 'connecting'">Connecting...</template>
+                            <template v-else>Offline</template>
+                        </span>
                     </div>
                     <!-- The Leaflet Hook -->
                     <div id="map" class="h-[600px] w-full z-0 relative isolate"></div>
@@ -353,4 +500,48 @@ onUnmounted(() => {
 
         </div>
     </div>
+
+    <!-- Idle Alert Toasts (top-right stack) -->
+    <Teleport to="body">
+        <div class="fixed top-4 right-4 z-[1000] space-y-2 w-96 max-w-[calc(100vw-2rem)] pointer-events-none">
+            <TransitionGroup
+                enter-active-class="transition ease-out duration-300"
+                enter-from-class="translate-x-full opacity-0"
+                enter-to-class="translate-x-0 opacity-100"
+                leave-active-class="transition ease-in duration-200"
+                leave-from-class="translate-x-0 opacity-100"
+                leave-to-class="translate-x-full opacity-0"
+            >
+                <div v-for="alert in idleAlerts" :key="alert.id"
+                     class="pointer-events-auto bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-rose-200 dark:border-rose-800 overflow-hidden">
+                    <div class="px-4 py-3 flex items-center justify-between border-b bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-rose-600 dark:text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <h3 class="font-bold text-sm text-rose-800 dark:text-rose-400">Driver Idle Alert</h3>
+                        </div>
+                        <button @click="dismissIdleAlert(alert.id)" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="p-4 flex items-start gap-3">
+                        <img v-if="alert.avatar" :src="alert.avatar" :alt="alert.driverName" class="w-10 h-10 rounded-full object-cover border border-rose-200 dark:border-rose-800 shrink-0">
+                        <div v-else class="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                            {{ (alert.driverName || '?').charAt(0).toUpperCase() }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-semibold text-sm text-gray-900 dark:text-white truncate">{{ alert.driverName }}</p>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                Moved <strong>{{ Number(alert.idleDistanceMeters ?? 0).toFixed(1) }}m</strong>
+                                in the last <strong>{{ Math.round(Number(alert.minutesSinceLastLog ?? 0)) }} min</strong>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </TransitionGroup>
+        </div>
+    </Teleport>
 </template>

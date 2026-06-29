@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\DriverIdleDetected;
+use App\Events\DriverLocationUpdated;
 use App\Models\User;
 use App\Models\TrackingLog;
 use Illuminate\Http\Request;
@@ -11,6 +13,12 @@ class TrackingController extends Controller
 {
     /**
      * Store a new tracking log entry for the authenticated driver.
+     *
+     * Side effects:
+     *  - Persists a TrackingLog row.
+     *  - Broadcasts DriverLocationUpdated for every successful save.
+     *  - Broadcasts DriverIdleDetected when the driver transitions
+     *    from active -> idle on this push (edge-triggered).
      */
     public function store(Request $request): JsonResponse
     {
@@ -26,13 +34,51 @@ class TrackingController extends Controller
             'delivery_id' => 'nullable|exists:deliveries,id',
         ]);
 
+        $driver = $request->user();
+
+        // Capture idle state BEFORE this new log is saved.
+        // Used to detect the active -> idle edge transition.
+        $wasIdleBefore = $this->calculateIdleStatus($driver);
+
         // Create tracking log
         $trackingLog = TrackingLog::create([
-            'driver_id' => $request->user()->id,
+            'driver_id' => $driver->id,
             'latitude' => $validated['latitude'],
             'longitude' => $validated['longitude'],
             'delivery_id' => $validated['delivery_id'] ?? null,
         ]);
+
+        // Refresh relation so subsequent calculations include the new log
+        $driver->unsetRelation('trackingLogs');
+
+        // Recompute idle + metadata using the existing logic
+        $isIdleNow = $this->calculateIdleStatus($driver);
+        $metadata = $this->calculateMetadata($driver);
+
+        $activeDeliveriesCount = $driver->deliveries()
+            ->whereIn('status', ['pending', 'on_way'])
+            ->count();
+
+        // Always broadcast the location update so the map can refresh in real time
+        broadcast(new DriverLocationUpdated(
+            $driver,
+            $trackingLog,
+            $isIdleNow,
+            $metadata['idle_distance_meters'],
+            $metadata['minutes_since_last_log'],
+            $activeDeliveriesCount
+        ));
+
+        // Edge-triggered idle alert: only fire on the active -> idle transition
+        if ($isIdleNow && !$wasIdleBefore) {
+            broadcast(new DriverIdleDetected(
+                $driver,
+                (float) $validated['latitude'],
+                (float) $validated['longitude'],
+                $metadata['idle_distance_meters'],
+                $metadata['minutes_since_last_log']
+            ));
+        }
 
         return response()->json($trackingLog, 201);
     }
@@ -44,10 +90,10 @@ class TrackingController extends Controller
         }
 
         $drivers = User::where('role', 'driver')
-            ->with(['trackingLogs' => function($q) {
+            ->with(['trackingLogs' => function ($q) {
                 $q->latest()->take(1);
             }])
-            ->withCount(['deliveries as active_deliveries_count' => function($q) {
+            ->withCount(['deliveries as active_deliveries_count' => function ($q) {
                 $q->whereIn('status', ['pending', 'on_way']);
             }])
             ->get();
@@ -55,7 +101,7 @@ class TrackingController extends Controller
         // Calculate and append idle status and metadata for each driver
         $drivers->each(function ($driver) {
             $driver->is_idle = $this->calculateIdleStatus($driver);
-            
+
             // Add metadata
             $metadata = $this->calculateMetadata($driver);
             $driver->idle_distance_meters = $metadata['idle_distance_meters'];
@@ -67,7 +113,7 @@ class TrackingController extends Controller
 
     /**
      * Calculate the distance between two GPS coordinates using the Haversine formula.
-     * 
+     *
      * @param float $lat1 Latitude of first point
      * @param float $lon1 Longitude of first point
      * @param float $lat2 Latitude of second point
@@ -95,12 +141,12 @@ class TrackingController extends Controller
      * A driver is considered idle if:
      * 1. They have tracking logs AND
      * 2. They have moved less than the configured distance threshold in the time window
-     * 
+     *
      * Special cases:
      * - If latest log is older than time window but exists = IDLE (no recent movement)
      * - If only 1 log in time window = IDLE (staying in one place)
      * - If multiple logs but distance < threshold = IDLE (minimal movement)
-     * 
+     *
      * @param User $driver The driver to check
      * @return bool True if idle, false otherwise
      */
@@ -151,7 +197,7 @@ class TrackingController extends Controller
 
     /**
      * Calculate movement metadata for a driver.
-     * 
+     *
      * @param User $driver The driver to calculate metadata for
      * @return array{idle_distance_meters: float|null, minutes_since_last_log: float|null}
      */

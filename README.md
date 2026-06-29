@@ -25,3 +25,5 @@ sail artisan migrate
 sail artisan db:seed
 sail npm run dev
 ```
+# Start Reverb websocket server
+./vendor/bin/sail artisan reverb:start

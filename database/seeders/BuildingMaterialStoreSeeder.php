@@ -1,4 +1,156 @@
-<?php
+macbook@MacBook-Pro Drivio % ./vendor/bin/sail down
+
+[+] Running 7/7
+ ⠿ Container drivio-laravel.test-1    Removed                     6.5s
+ ⠿ Container drivio-mailpit-1         Removed                     1.2s
+ ⠿ Container drivio-redis-1           Removed                     1.2s
+ ⠿ Container drivio-pma-1             Removed                     3.0s
+ ⠿ Container drivio-face_recognize-1  Removed                     6.6s
+ ⠿ Container drivio-mysql-1           Removed                     5.4s
+ ⠿ Network drivio_sail                Re...                       0.8s
+macbook@MacBook-Pro Drivio % sail up -d
+[+] Running 7/7
+ ⠿ Network drivio_sail                Cr...                       0.3s
+ ⠿ Container drivio-mysql-1           Started                     8.4s
+ ⠿ Container drivio-redis-1           Started                     9.1s
+ ⠿ Container drivio-mailpit-1         Started                     8.1s
+ ⠿ Container drivio-pma-1             Started                     8.7s
+ ⠿ Container drivio-face_recognize-1  Started                     8.7s
+ ⠿ Container drivio-laravel.test-1    Started                     9.3s
+macbook@MacBook-Pro Drivio % sail composer require laravel/reverb
+
+The repository at "/var/www/html" does not have the correct ownership and git refuses to use it:
+
+fatal: detected dubious ownership in repository at '/var/www/html'
+To add an exception for this directory, call:
+
+git config --global --add safe.directory /var/www/html
+
+./composer.json has been updated
+The repository at "/var/www/html" does not have the correct ownership and git refuses to use it:
+
+fatal: detected dubious ownership in repository at '/var/www/html'
+To add an exception for this directory, call:
+
+git config --global --add safe.directory /var/www/html
+
+Running composer update laravel/reverb
+Loading composer repositories with package information
+Updating dependencies
+Lock file operations: 13 installs, 0 updates, 0 removals
+  - Locking clue/redis-protocol (v0.3.2)
+  - Locking clue/redis-react (v2.8.0)
+  - Locking evenement/evenement (v3.0.2)
+  - Locking laravel/reverb (v1.10.2)
+  - Locking pusher/pusher-php-server (7.2.8)
+  - Locking ratchet/rfc6455 (v0.4.0)
+  - Locking react/cache (v1.2.0)
+  - Locking react/dns (v1.14.0)
+  - Locking react/event-loop (v1.6.0)
+  - Locking react/promise (v3.3.0)
+  - Locking react/promise-timer (v1.11.0)
+  - Locking react/socket (v1.17.0)
+  - Locking react/stream (v1.4.0)
+Writing lock file
+Installing dependencies from lock file (including require-dev)
+Package operations: 13 installs, 0 updates, 0 removals
+  - Downloading clue/redis-protocol (v0.3.2)
+  - Downloading react/event-loop (v1.6.0)
+  - Downloading evenement/evenement (v3.0.2)
+  - Downloading react/stream (v1.4.0)
+  - Downloading react/promise (v3.3.0)
+  - Downloading react/cache (v1.2.0)
+  - Downloading react/dns (v1.14.0)
+  - Downloading react/socket (v1.17.0)
+  - Downloading react/promise-timer (v1.11.0)
+  - Downloading ratchet/rfc6455 (v0.4.0)
+  - Downloading pusher/pusher-php-server (7.2.8)
+  - Downloading clue/redis-react (v2.8.0)
+  - Downloading laravel/reverb (v1.10.2)
+  - Installing clue/redis-protocol (v0.3.2): Extracting archive
+  - Installing react/event-loop (v1.6.0): Extracting archive
+  - Installing evenement/evenement (v3.0.2): Extracting archive
+  - Installing react/stream (v1.4.0): Extracting archive
+  - Installing react/promise (v3.3.0): Extracting archive
+  - Installing react/cache (v1.2.0): Extracting archive
+  - Installing react/dns (v1.14.0): Extracting archive
+  - Installing react/socket (v1.17.0): Extracting archive
+  - Installing react/promise-timer (v1.11.0): Extracting archive
+  - Installing ratchet/rfc6455 (v0.4.0): Extracting archive
+  - Installing pusher/pusher-php-server (7.2.8): Extracting archive
+  - Installing clue/redis-react (v2.8.0): Extracting archive
+  - Installing laravel/reverb (v1.10.2): Extracting archive
+Generating optimized autoload files
+> Illuminate\Foundation\ComposerScripts::postAutoloadDump
+> @php artisan package:discover --ansi
+
+   INFO  Discovering packages.  
+
+  inertiajs/inertia-laravel .................................... DONE
+  laravel/breeze ............................................... DONE
+  laravel/pail ................................................. DONE
+  laravel/reverb ............................................... DONE
+  laravel/sail ................................................. DONE
+  laravel/sanctum .............................................. DONE
+  laravel/tinker ............................................... DONE
+  maatwebsite/excel ............................................ DONE
+  nesbot/carbon ................................................ DONE
+  nunomaduro/collision ......................................... DONE
+  nunomaduro/termwind .......................................... DONE
+  tightenco/ziggy .............................................. DONE
+
+94 packages you are using are looking for funding.
+Use the `composer fund` command to find out more!
+> @php artisan vendor:publish --tag=laravel-assets --ansi --force
+
+   INFO  No publishable resources for tag [laravel-assets].  
+
+Found 18 security vulnerability advisories affecting 10 packages.
+Run "composer audit" for a full list of advisories.
+Using version ^1.10 for laravel/reverb
+macbook@MacBook-Pro Drivio % sail artisan install:broadcasting
+
+   ERROR  The 'broadcasting' configuration file already exists.  
+
+ ┌ Which broadcasting driver would you like to use? ────────────┐
+ │ Laravel Reverb                                               │
+ └──────────────────────────────────────────────────────────────┘
+
+   WARN  Could not find file [resources/js/app.ts]. Skipping automatic Echo configuration.  
+
+ ┌ Would you like to install and build the Node dependencies requir… ┐
+ │ Yes                                                               │
+ └───────────────────────────────────────────────────────────────────┘
+
+   INFO  Installing and building Node dependencies.  
+
+yarn add v1.22.22
+warning package-lock.json found. Your project contains lock files generated by tools other than Yarn. It is advised not to mix package managers in order to avoid resolution inconsistencies caused by unsynchronized lock files. To clear this warning, remove package-lock.json.
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[####################################################--------] 327/376
+   Illuminate\Process\Exceptions\ProcessTimedOutException 
+
+  The process "yarn add --dev laravel-echo pusher-js @laravel/echo-vue && yarn run build" exceeded the timeout of 60 seconds.
+
+  at vendor/laravel/framework/src/Illuminate/Process/PendingProcess.php:260
+    256▕             }
+    257▕ 
+    258▕             return new ProcessResult(tap($process)->run($output));
+    259▕         } catch (SymfonyTimeoutException $e) {
+  ➜ 260▕             throw new ProcessTimedOutException($e, new ProcessResult($process));
+    261▕         }
+    262▕     }
+    263▕ 
+    264▕     /**
+
+      +20 vendor frames 
+
+  21  artisan:16
+      Illuminate\Foundation\Application::handleCommand()
+
+[#####################################################-------] 330/376%
+macbook@MacBook-Pro Drivio % <?php
 
 namespace Database\Seeders;
 

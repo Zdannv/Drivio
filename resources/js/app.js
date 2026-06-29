@@ -7,8 +7,13 @@ import { createApp, h } from 'vue';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
 import Datepicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css';
+import { registerSW } from 'virtual:pwa-register';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+
+if ('serviceWorker' in navigator) {
+    registerSW({ immediate: true });
+}
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
